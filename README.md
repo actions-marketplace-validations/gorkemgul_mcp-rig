@@ -16,6 +16,7 @@ python3 -m venv .venv
 
 ```bash
 .venv/bin/mcp-rig run examples/fixture.yaml
+.venv/bin/mcp-rig run examples/fixture.yaml --junit results.xml
 ```
 
 Each case expects a successful tool call unless it declares
@@ -30,9 +31,23 @@ Each case expects a successful tool call unless it declares
   are rejected to keep evaluation offline.
 
 JSON checks prefer MCP structured content and otherwise parse response text as
-JSON. Invalid expectation configuration exits with code `2` before the server
-starts. Add `--server-logs` to expose the MCP server's stderr while diagnosing
-startup or tool behavior.
+JSON. Each case may set a positive, finite `timeout_s`; the default is 30
+seconds. A timeout is an infrastructure error, aborts further calls on the
+shared session, and marks later cases as skipped.
 
-This release supports local stdio servers and tools only. Timeout handling,
-JUnit output, protocol checks, and PyPI publication arrive in later increments.
+Terminal and JUnit reports distinguish four states:
+
+- passed: the call completed and every expectation matched;
+- failed: the call completed but one or more expectations did not match;
+- error: MCP Rig could not execute the call or suite reliably; and
+- skipped: the case was not started after an infrastructure error.
+
+`--junit PATH` writes CI-readable XML without creating missing parent
+directories. Invalid configuration exits before the server starts and does not
+write a JUnit report. Exit codes are `0` for success, `1` for assertion
+failures only, and `2` for configuration or infrastructure failures. Add
+`--server-logs` to expose the MCP server's stderr while diagnosing startup or
+tool behavior.
+
+This release supports local stdio servers and tools only. Protocol checks and
+PyPI publication arrive in later increments.

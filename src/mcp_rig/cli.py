@@ -7,6 +7,7 @@ import sys
 
 import anyio
 
+from mcp_rig.junit import write_junit
 from mcp_rig.report import render_suite
 from mcp_rig.runner import run_suite
 from mcp_rig.spec import SpecError, load_suite
@@ -29,6 +30,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="show the MCP server's stderr",
     )
+    run_parser.add_argument(
+        "--junit",
+        metavar="PATH",
+        help="also write a JUnit XML report",
+    )
 
     args = parser.parse_args(argv)
     return _run(args, color=sys.stdout.isatty())
@@ -46,6 +52,12 @@ def _run(args: argparse.Namespace, color: bool) -> int:
         return EXIT_USAGE
 
     print(render_suite(args.suite, result, color=color))
+    if args.junit:
+        try:
+            write_junit(args.junit, args.suite, result)
+        except OSError as exc:
+            print(f"error: {args.junit}: could not write JUnit report: {_describe(exc)}", file=sys.stderr)
+            return EXIT_USAGE
     if result.errors:
         return EXIT_USAGE
     if result.failed:
