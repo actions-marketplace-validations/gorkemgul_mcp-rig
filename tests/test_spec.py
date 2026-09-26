@@ -73,6 +73,7 @@ tests:
         ("server: python server.py\ntests: [{name: ping, call: ping, expect: {contains: []}}]", "'contains'"),
         ("server: {command: true}\ntests: [{name: ping, call: ping}]", "server.command"),
         ("server: '\"\"'\ntests: [{name: ping, call: ping}]", "server command is empty"),
+        ("server: {command: '\"\"'}\ntests: [{name: ping, call: ping}]", "server command is empty"),
         ("server: {command: python, args: [server.py, 3]}\ntests: [{name: ping, call: ping}]", "server.args"),
         ("server: {command: python, env: {PORT: 3}}\ntests: [{name: ping, call: ping}]", "server.env"),
         ("server: [unclosed", "invalid YAML"),

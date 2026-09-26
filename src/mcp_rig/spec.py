@@ -59,8 +59,6 @@ def _parse_server(raw: Any, path: Path) -> ServerSpec:
             spec = ServerSpec.from_command_line(raw)
         except ValueError as exc:
             raise SpecError(f"{path}: invalid 'server': {exc}") from exc
-        if not spec.command:
-            raise SpecError(f"{path}: invalid 'server': server command is empty")
     elif isinstance(raw, dict):
         command = raw.get("command")
         if not isinstance(command, str) or not command.strip():
@@ -86,6 +84,9 @@ def _parse_server(raw: Any, path: Path) -> ServerSpec:
         spec.cwd = cwd
     else:
         raise SpecError(f"{path}: 'server' must be a command string or mapping")
+
+    if not spec.command:
+        raise SpecError(f"{path}: invalid 'server': server command is empty")
 
     base = path.parent.resolve()
     if spec.cwd is None:

@@ -15,7 +15,7 @@ python3 -m venv .venv
 ## Run a suite
 
 ```bash
-mcp-rig run examples/fixture.yaml
+.venv/bin/mcp-rig run examples/fixture.yaml
 ```
 
 Each case expects a successful tool call unless it declares

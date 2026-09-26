@@ -1,4 +1,4 @@
-# From the repository root: mcp-rig run examples/fixture.yaml
+# From the repository root: .venv/bin/mcp-rig run examples/fixture.yaml
 server: ../.venv/bin/python ../tests/fixtures/fixture_server.py
 
 tests:
