@@ -81,3 +81,52 @@ def test_server_logs_are_hidden_by_default_and_visible_with_flag(tmp_path, fixtu
     assert "mcp-rig-cli-server-log" not in capfd.readouterr().err
     assert main(["run", str(path), "--server-logs"]) == 0
     assert "mcp-rig-cli-server-log" in capfd.readouterr().err
+
+
+def test_run_advanced_expectations_through_public_cli(tmp_path, fixture_spec, capsys):
+    cases = """\
+  - name: validates user payload
+    call: get_user
+    args: {user_id: 1}
+    expect:
+      is_error: false
+      contains: Ada
+      not_contains: password
+      matches: Ada
+      max_latency_ms: 5000
+      json_path:
+        name: Ada
+        roles.0: admin
+      schema:
+        type: object
+        required: [id, name, roles]
+        properties:
+          id: {type: integer}
+          name: {type: string}
+          roles: {type: array}
+"""
+    path = write_suite(tmp_path, fixture_spec, cases)
+
+    assert main(["run", str(path)]) == 0
+    captured = capsys.readouterr()
+    assert "✓ validates user payload" in captured.out
+    assert "1 passed, 0 failed" in captured.out
+
+
+def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, capsys):
+    path = tmp_path / "suite.yaml"
+    path.write_text(
+        "server: /definitely/missing/mcp-rig-server\n"
+        "tests:\n"
+        "  - name: never\n"
+        "    call: echo\n"
+        "    expect:\n"
+        "      matches: '[unclosed'\n",
+        encoding="utf-8",
+    )
+
+    assert main(["run", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert "invalid 'matches' regular expression" in captured.err
+    assert "could not run server" not in captured.err
+    assert "Traceback" not in captured.err

@@ -14,3 +14,23 @@ tests:
     expect:
       is_error: true
       contains: "not found"
+
+  - name: user payload is valid and fast
+    call: get_user
+    args: {user_id: 1}
+    expect:
+      is_error: false
+      contains: "Ada"
+      not_contains: "password"
+      matches: "Ada"
+      max_latency_ms: 5000
+      json_path:
+        name: Ada
+        roles.0: admin
+      schema:
+        type: object
+        required: [id, name, roles]
+        properties:
+          id: {type: integer}
+          name: {type: string}
+          roles: {type: array}
