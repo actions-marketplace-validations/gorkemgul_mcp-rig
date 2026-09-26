@@ -113,6 +113,25 @@ def test_run_advanced_expectations_through_public_cli(tmp_path, fixture_spec, ca
     assert "1 passed, 0 failed" in captured.out
 
 
+def test_run_timeout_exits_two_and_reports_skipped_cases(tmp_path, fixture_spec, capsys):
+    cases = """\
+  - name: too slow
+    call: slow
+    args: {seconds: 0.2}
+    timeout_s: 0.01
+  - name: never runs
+    call: echo
+    args: {text: after}
+"""
+    path = write_suite(tmp_path, fixture_spec, cases)
+
+    assert main(["run", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert "! too slow" in captured.out
+    assert "- never runs" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
 def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, capsys):
     path = tmp_path / "suite.yaml"
     path.write_text(

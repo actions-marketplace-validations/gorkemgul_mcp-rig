@@ -46,7 +46,11 @@ def _run(args: argparse.Namespace, color: bool) -> int:
         return EXIT_USAGE
 
     print(render_suite(args.suite, result, color=color))
-    return EXIT_OK if result.ok else EXIT_FAILED
+    if result.errors:
+        return EXIT_USAGE
+    if result.failed:
+        return EXIT_FAILED
+    return EXIT_OK
 
 
 def _describe(exc: BaseException) -> str:
