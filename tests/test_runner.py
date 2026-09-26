@@ -122,12 +122,42 @@ async def test_base_exception_from_probe_propagates(monkeypatch, tmp_path):
 
 
 @pytest.mark.anyio
-async def test_infrastructure_failure_propagates(tmp_path):
+async def test_infrastructure_failure_becomes_setup_error_and_skips_declared_cases(tmp_path):
     suite = Suite(
         path=tmp_path / "suite.yaml",
         server=ServerSpec("/definitely/missing/mcp-rig-server"),
-        cases=[Case("never runs", "echo")],
+        cases=[Case("never runs", "echo"), Case("also skipped", "echo")],
     )
 
-    with pytest.raises(OSError):
-        await run_suite(suite)
+    result = await run_suite(suite)
+
+    assert result.suite_error.category is ErrorCategory.SETUP
+    assert [item.status for item in result.results] == [CaseStatus.SKIPPED, CaseStatus.SKIPPED]
+    assert all(item.skip_reason == "suite could not start" for item in result.results)
+    assert (result.errors, result.skipped, result.ok) == (1, 2, False)
+
+
+@pytest.mark.anyio
+async def test_teardown_failure_preserves_completed_results(monkeypatch, tmp_path):
+    class FakeProbe:
+        async def call(self, name, args, timeout_s):
+            return CallOutcome(False, "ok", None, 1.0)
+
+    @asynccontextmanager
+    async def failing_teardown(spec, show_server_logs=False):
+        yield FakeProbe()
+        raise RuntimeError("close failed")
+
+    monkeypatch.setattr("mcp_rig.runner.connect", failing_teardown)
+    suite = Suite(
+        path=tmp_path / "suite.yaml",
+        server=ServerSpec("unused"),
+        cases=[Case("completed", "echo", expect={"contains": "ok"})],
+    )
+
+    result = await run_suite(suite)
+
+    assert [item.status for item in result.results] == [CaseStatus.PASSED]
+    assert result.suite_error.category is ErrorCategory.TEARDOWN
+    assert result.suite_error.message == "close failed"
+    assert (result.errors, result.skipped, result.ok) == (1, 0, False)

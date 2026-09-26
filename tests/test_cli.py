@@ -64,8 +64,10 @@ def test_run_unstartable_server_exits_two(tmp_path, capsys):
 
     assert main(["run", str(path)]) == 2
     captured = capsys.readouterr()
-    assert "could not run server" in captured.err
-    assert "Traceback" not in captured.err
+    assert "! suite setup:" in captured.out
+    assert "- never" in captured.out
+    assert "suite could not start" in captured.out
+    assert "Traceback" not in captured.out + captured.err
 
 
 def test_server_logs_are_hidden_by_default_and_visible_with_flag(tmp_path, fixture_spec, capfd):

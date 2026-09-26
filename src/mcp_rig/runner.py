@@ -74,17 +74,30 @@ class SuiteResult:
 
 async def run_suite(suite: Suite, show_server_logs: bool = False) -> SuiteResult:
     results: list[CaseResult] = []
-    async with connect(suite.server, show_server_logs=show_server_logs) as probe:
-        for index, case in enumerate(suite.cases):
-            result = await _run_case(probe, case)
-            results.append(result)
-            if result.status is CaseStatus.ERROR:
-                reason = f"not run after infrastructure error in '{case.name}'"
-                results.extend(
-                    CaseResult(name=remaining.name, status=CaseStatus.SKIPPED, skip_reason=reason)
-                    for remaining in suite.cases[index + 1 :]
-                )
-                break
+    connected = False
+    body_failed = False
+    try:
+        async with connect(suite.server, show_server_logs=show_server_logs) as probe:
+            connected = True
+            try:
+                for index, case in enumerate(suite.cases):
+                    result = await _run_case(probe, case)
+                    results.append(result)
+                    if result.status is CaseStatus.ERROR:
+                        reason = f"not run after infrastructure error in '{case.name}'"
+                        results.extend(_skipped_cases(suite.cases[index + 1 :], reason))
+                        break
+            except BaseException:
+                body_failed = True
+                raise
+    except Exception as exc:
+        if body_failed:
+            raise
+        category = ErrorCategory.TEARDOWN if connected else ErrorCategory.SETUP
+        suite_error = _normalize_error(exc, category)
+        if not connected:
+            results = _skipped_cases(suite.cases, "suite could not start")
+        return SuiteResult(results, suite_error=suite_error)
     return SuiteResult(results)
 
 
@@ -125,3 +138,7 @@ def _exception_leaves(exc: BaseException) -> list[BaseException]:
 
 def _is_timeout(exc: BaseException) -> bool:
     return isinstance(exc, TimeoutError) or isinstance(exc, MCPError) and exc.code == REQUEST_TIMEOUT
+
+
+def _skipped_cases(cases: list[Case], reason: str) -> list[CaseResult]:
+    return [CaseResult(name=case.name, status=CaseStatus.SKIPPED, skip_reason=reason) for case in cases]

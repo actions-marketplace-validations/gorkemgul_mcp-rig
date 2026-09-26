@@ -71,3 +71,29 @@ def test_render_suite_color_wraps_only_status_marks():
     assert "\033[31m!\033[0m times out" in text
     assert "\033[" not in text.split("- later", maxsplit=1)[1]
     assert "MCP Rig — suite.yaml" in text
+
+
+def test_render_suite_setup_error_separately_from_skipped_cases():
+    suite_result = SuiteResult(
+        [CaseResult(name="never runs", status=CaseStatus.SKIPPED, skip_reason="suite could not start")],
+        suite_error=InfrastructureError(ErrorCategory.SETUP, "FileNotFoundError", "missing server"),
+    )
+
+    text = render_suite("suite.yaml", suite_result)
+
+    assert "! suite setup: FileNotFoundError: missing server" in text
+    assert "- never runs\n    suite could not start" in text
+    assert "0 passed, 0 failed, 1 error, 1 skipped" in text
+
+
+def test_render_suite_teardown_error_without_rewriting_completed_case():
+    suite_result = SuiteResult(
+        [completed_result("completed", CaseStatus.PASSED, [], 2.0)],
+        suite_error=InfrastructureError(ErrorCategory.TEARDOWN, "RuntimeError", "close failed"),
+    )
+
+    text = render_suite("suite.yaml", suite_result)
+
+    assert "✓ completed (2 ms)" in text
+    assert "! suite teardown: RuntimeError: close failed" in text
+    assert "1 passed, 0 failed, 1 error, 0 skipped" in text
