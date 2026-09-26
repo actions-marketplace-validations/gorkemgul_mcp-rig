@@ -1,0 +1,16 @@
+# From the repository root: mcp-rig run examples/fixture.yaml
+server: ../.venv/bin/python ../tests/fixtures/fixture_server.py
+
+tests:
+  - name: adds two numbers
+    call: add
+    args: {a: 2, b: 3}
+    expect:
+      contains: "5"
+
+  - name: unknown user returns an error
+    call: get_user
+    args: {user_id: 42}
+    expect:
+      is_error: true
+      contains: "not found"
