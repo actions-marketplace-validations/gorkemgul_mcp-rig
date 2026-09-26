@@ -1,4 +1,5 @@
-# From the repository root: .venv/bin/mcp-rig run examples/fixture.yaml
+# From the repository root:
+# .venv/bin/mcp-rig run examples/fixture.yaml --junit /tmp/mcp-rig-results.xml
 server: ../.venv/bin/python ../tests/fixtures/fixture_server.py
 
 tests:
@@ -18,6 +19,7 @@ tests:
   - name: user payload is valid and fast
     call: get_user
     args: {user_id: 1}
+    timeout_s: 5
     expect:
       is_error: false
       contains: "Ada"

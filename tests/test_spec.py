@@ -58,6 +58,56 @@ tests:
     assert suite.cases[0].expect == {}
 
 
+def test_case_timeout_defaults_to_thirty_seconds(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+tests:
+  - name: pings
+    call: ping
+""",
+        )
+    )
+
+    assert suite.cases[0].timeout_s == 30.0
+
+
+def test_case_timeout_accepts_positive_number(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+tests:
+  - name: pings quickly
+    call: ping
+    timeout_s: 1.25
+""",
+        )
+    )
+
+    assert suite.cases[0].timeout_s == 1.25
+
+
+@pytest.mark.parametrize("value", ["true", "0", "-1", ".nan", ".inf", "-.inf", "fast", "null"])
+def test_case_timeout_rejects_non_positive_or_non_finite_number(tmp_path, value):
+    with pytest.raises(SpecError, match="'timeout_s' must be a positive number"):
+        load_suite(
+            write_suite(
+                tmp_path,
+                f"""
+server: python server.py
+tests:
+  - name: pings
+    call: ping
+    timeout_s: {value}
+""",
+            )
+        )
+
+
 def test_loads_advanced_expectations(tmp_path):
     suite = load_suite(
         write_suite(

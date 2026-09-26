@@ -37,6 +37,7 @@ class Case:
     call: str
     args: dict[str, Any] = field(default_factory=dict)
     expect: dict[str, Any] = field(default_factory=dict)
+    timeout_s: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,14 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
     expect = raw.get("expect", {})
     if not isinstance(expect, dict):
         raise SpecError(f"{where} ({name}): 'expect' must be a mapping")
+    timeout_s = raw.get("timeout_s", 30.0)
+    if (
+        isinstance(timeout_s, bool)
+        or not isinstance(timeout_s, (int, float))
+        or not math.isfinite(timeout_s)
+        or timeout_s <= 0
+    ):
+        raise SpecError(f"{where} ({name}): 'timeout_s' must be a positive number")
     unknown = set(expect) - KNOWN_EXPECT_KEYS
     if unknown:
         names = ", ".join(sorted(unknown))
@@ -176,7 +185,7 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         except jsonschema.SchemaError as exc:
             raise SpecError(f"{where} ({name}): invalid 'schema': {exc.message}") from exc
         _validate_schema_references(schema, where, name)
-    return Case(name=name, call=call, args=args, expect=expect)
+    return Case(name=name, call=call, args=args, expect=expect, timeout_s=float(timeout_s))
 
 
 def _is_string_or_non_empty_string_list(value: Any) -> bool:

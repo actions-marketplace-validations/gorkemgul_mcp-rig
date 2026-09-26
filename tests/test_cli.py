@@ -1,4 +1,5 @@
 import shlex
+import xml.etree.ElementTree as ET
 
 from mcp_rig.cli import main
 
@@ -64,8 +65,10 @@ def test_run_unstartable_server_exits_two(tmp_path, capsys):
 
     assert main(["run", str(path)]) == 2
     captured = capsys.readouterr()
-    assert "could not run server" in captured.err
-    assert "Traceback" not in captured.err
+    assert "! suite setup:" in captured.out
+    assert "- never" in captured.out
+    assert "suite could not start" in captured.out
+    assert "Traceback" not in captured.out + captured.err
 
 
 def test_server_logs_are_hidden_by_default_and_visible_with_flag(tmp_path, fixture_spec, capfd):
@@ -111,6 +114,128 @@ def test_run_advanced_expectations_through_public_cli(tmp_path, fixture_spec, ca
     captured = capsys.readouterr()
     assert "✓ validates user payload" in captured.out
     assert "1 passed, 0 failed" in captured.out
+
+
+def test_run_timeout_exits_two_and_reports_skipped_cases(tmp_path, fixture_spec, capsys):
+    cases = """\
+  - name: too slow
+    call: slow
+    args: {seconds: 0.2}
+    timeout_s: 0.01
+  - name: never runs
+    call: echo
+    args: {text: after}
+"""
+    path = write_suite(tmp_path, fixture_spec, cases)
+
+    assert main(["run", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert "! too slow" in captured.out
+    assert "- never runs" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_run_writes_passing_junit_report(tmp_path, fixture_spec, capsys):
+    suite_path = write_suite(tmp_path, fixture_spec, PASSING)
+    report_path = tmp_path / "results.xml"
+
+    assert main(["run", str(suite_path), "--junit", str(report_path)]) == 0
+    captured = capsys.readouterr()
+    suite = ET.parse(report_path).getroot().find("testsuite")
+    assert suite is not None
+    assert suite.attrib["failures"] == "0"
+    assert suite.attrib["errors"] == "0"
+    assert "✓ adds" in captured.out
+
+
+def test_run_writes_failing_junit_report_and_exits_one(tmp_path, fixture_spec, capsys):
+    suite_path = write_suite(tmp_path, fixture_spec, FAILING)
+    report_path = tmp_path / "results.xml"
+
+    assert main(["run", str(suite_path), "--junit", str(report_path)]) == 1
+    captured = capsys.readouterr()
+    suite = ET.parse(report_path).getroot().find("testsuite")
+    assert suite is not None
+    failure = suite.findall("testcase")[1].find("failure")
+    assert failure is not None
+    assert "contains: 'bye' not found in 'hi'" in failure.text
+    assert "✗ wrong" in captured.out
+
+
+def test_run_writes_timeout_and_skipped_junit_results(tmp_path, fixture_spec):
+    cases = """\
+  - name: too slow
+    call: slow
+    args: {seconds: 0.2}
+    timeout_s: 0.01
+  - name: never runs
+    call: echo
+    args: {text: after}
+"""
+    suite_path = write_suite(tmp_path, fixture_spec, cases)
+    report_path = tmp_path / "results.xml"
+
+    assert main(["run", str(suite_path), "--junit", str(report_path)]) == 2
+    suite = ET.parse(report_path).getroot().find("testsuite")
+    assert suite is not None
+    assert suite.attrib["errors"] == "1"
+    assert suite.attrib["skipped"] == "1"
+    first, second = suite.findall("testcase")
+    assert first.find("error") is not None
+    assert second.find("skipped") is not None
+
+
+def test_run_writes_setup_error_junit_report(tmp_path):
+    suite_path = tmp_path / "suite.yaml"
+    suite_path.write_text(
+        "server: /definitely/missing/mcp-rig-server\n"
+        "tests:\n  - {name: never, call: echo}\n",
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "results.xml"
+
+    assert main(["run", str(suite_path), "--junit", str(report_path)]) == 2
+    suite = ET.parse(report_path).getroot().find("testsuite")
+    assert suite is not None
+    cases = suite.findall("testcase")
+    assert [case.attrib["name"] for case in cases] == ["never", "[suite setup]"]
+    assert cases[0].find("skipped") is not None
+    assert cases[1].find("error") is not None
+
+
+def test_invalid_configuration_does_not_create_junit_report(tmp_path, capsys):
+    report_path = tmp_path / "results.xml"
+
+    assert main(["run", str(tmp_path / "missing.yaml"), "--junit", str(report_path)]) == 2
+    captured = capsys.readouterr()
+    assert not report_path.exists()
+    assert "error:" in captured.err
+
+
+def test_unwritable_junit_path_exits_two_after_printing_terminal_result(tmp_path, fixture_spec, capsys):
+    suite_path = write_suite(tmp_path, fixture_spec, PASSING)
+    report_path = tmp_path / "missing" / "results.xml"
+
+    assert main(["run", str(suite_path), "--junit", str(report_path)]) == 2
+    captured = capsys.readouterr()
+    assert "✓ adds" in captured.out
+    assert "could not write JUnit report" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_junit_path_cannot_overwrite_suite_file(tmp_path, capsys):
+    suite_path = tmp_path / "suite.yaml"
+    original = (
+        "server: /definitely/missing/mcp-rig-server\n"
+        "tests:\n  - {name: never, call: echo}\n"
+    )
+    suite_path.write_text(original, encoding="utf-8")
+
+    assert main(["run", str(suite_path), "--junit", str(suite_path)]) == 2
+    captured = capsys.readouterr()
+    assert suite_path.read_text(encoding="utf-8") == original
+    assert "JUnit report path must differ from suite path" in captured.err
+    assert "could not run server" not in captured.err
 
 
 def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, capsys):
