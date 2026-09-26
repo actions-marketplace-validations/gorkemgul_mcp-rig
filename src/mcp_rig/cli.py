@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 import anyio
 
@@ -41,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace, color: bool) -> int:
+    if args.junit and _same_path(args.suite, args.junit):
+        print("error: JUnit report path must differ from suite path", file=sys.stderr)
+        return EXIT_USAGE
     try:
         suite = load_suite(args.suite)
         result = anyio.run(run_suite, suite, args.server_logs)
@@ -69,3 +73,10 @@ def _describe(exc: BaseException) -> str:
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
         exc = exc.exceptions[0]
     return f"{type(exc).__name__}: {exc}"
+
+
+def _same_path(first: str, second: str) -> bool:
+    try:
+        return Path(first).samefile(second)
+    except OSError:
+        return Path(first).resolve() == Path(second).resolve()

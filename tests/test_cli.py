@@ -223,6 +223,21 @@ def test_unwritable_junit_path_exits_two_after_printing_terminal_result(tmp_path
     assert "Traceback" not in captured.out + captured.err
 
 
+def test_junit_path_cannot_overwrite_suite_file(tmp_path, capsys):
+    suite_path = tmp_path / "suite.yaml"
+    original = (
+        "server: /definitely/missing/mcp-rig-server\n"
+        "tests:\n  - {name: never, call: echo}\n"
+    )
+    suite_path.write_text(original, encoding="utf-8")
+
+    assert main(["run", str(suite_path), "--junit", str(suite_path)]) == 2
+    captured = capsys.readouterr()
+    assert suite_path.read_text(encoding="utf-8") == original
+    assert "JUnit report path must differ from suite path" in captured.err
+    assert "could not run server" not in captured.err
+
+
 def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, capsys):
     path = tmp_path / "suite.yaml"
     path.write_text(
