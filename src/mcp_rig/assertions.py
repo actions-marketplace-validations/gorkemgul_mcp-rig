@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from mcp_rig.client import CallOutcome
@@ -18,6 +19,15 @@ def check(expect: dict[str, Any], outcome: CallOutcome) -> list[str]:
     for needle in _needles(expect.get("contains")):
         if needle not in outcome.text:
             failures.append(f"contains: {needle!r} not found in {_short(outcome.text)}")
+    for needle in _needles(expect.get("not_contains")):
+        if needle in outcome.text:
+            failures.append(f"not_contains: {needle!r} found in {_short(outcome.text)}")
+    if "matches" in expect and re.search(expect["matches"], outcome.text) is None:
+        failures.append(f"matches: /{expect['matches']}/ did not match {_short(outcome.text)}")
+    if "max_latency_ms" in expect:
+        limit = float(expect["max_latency_ms"])
+        if outcome.latency_ms > limit:
+            failures.append(f"max_latency_ms: took {outcome.latency_ms:.0f} ms, limit {limit:.0f} ms")
     return failures
 
 
