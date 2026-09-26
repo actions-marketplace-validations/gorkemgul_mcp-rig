@@ -79,6 +79,72 @@ def test_advanced_text_failures_follow_fixed_order():
     ]
 
 
+def test_json_path_reads_text_json_and_list_indexes():
+    text_outcome = outcome('{"user": {"name": "Ada", "roles": ["admin"]}}')
+
+    assert check({"json_path": {"user.name": "Ada", "user.roles.0": "admin"}}, text_outcome) == []
+    assert check({"json_path": {"user.age": 3}}, text_outcome) == ["json_path user.age: missing"]
+    assert check({"json_path": {"user.name": "Bob"}}, text_outcome) == [
+        "json_path user.name: expected 'Bob', got 'Ada'"
+    ]
+
+
+def test_json_path_prefers_structured_content_including_falsey_values():
+    assert check({"json_path": {"result": 5}}, outcome("not json", structured={"result": 5})) == []
+    assert check(
+        {"json_path": {"flag": False}},
+        outcome('{"flag": true}', structured={"flag": False}),
+    ) == []
+    assert check({"json_path": {"value": None}}, outcome('{"value": null}')) == []
+
+
+def test_json_path_rejects_invalid_list_indexes_without_raising():
+    response = outcome('{"items": ["first"]}')
+
+    assert check(
+        {"json_path": {"items.-1": "first", "items.one": "first", "items.2": "first"}},
+        response,
+    ) == [
+        "json_path items.-1: missing",
+        "json_path items.one: missing",
+        "json_path items.2: missing",
+    ]
+
+
+def test_json_expectations_report_one_failure_for_non_json_text():
+    expect = {"json_path": {"a": 1}, "schema": {"type": "object"}}
+
+    assert check(expect, outcome("hello")) == ["json: response is not JSON: 'hello'"]
+
+
+def test_schema_validates_response_payload():
+    schema = {
+        "type": "object",
+        "required": ["id"],
+        "properties": {"id": {"type": "integer"}},
+    }
+
+    assert check({"schema": schema}, outcome('{"id": 1}')) == []
+    assert check({"schema": schema}, outcome('{"id": "x"}')) == [
+        "schema: 'x' is not of type 'integer'"
+    ]
+
+
+def test_schema_returns_multiple_errors_in_deterministic_order():
+    schema = {
+        "type": "object",
+        "properties": {
+            "b": {"type": "string"},
+            "a": {"type": "integer"},
+        },
+    }
+
+    assert check({"schema": schema}, outcome(structured={"b": 0, "a": "x"})) == [
+        "schema: 'x' is not of type 'integer'",
+        "schema: 0 is not of type 'string'",
+    ]
+
+
 def test_reports_every_failed_expectation():
     failures = check({"is_error": True, "contains": ["Ada", "admin"]}, outcome("Lin"))
     assert failures == [
