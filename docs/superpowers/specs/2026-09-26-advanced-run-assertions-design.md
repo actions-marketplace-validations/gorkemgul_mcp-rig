@@ -78,6 +78,9 @@ The complete suite is validated before `connect()` is called.
   Expected values may be any YAML value so suites can compare strings,
   numbers, booleans, nulls, objects, and arrays exactly.
 - `schema` must be a mapping and must itself be a valid Draft 2020-12 schema.
+- Schema references must be document-local `#...` references and resolve
+  during preflight. External references are rejected so assertion evaluation
+  never performs network I/O.
 - Invalid regular expressions and schemas raise `SpecError` with the case
   location and concise validation detail.
 

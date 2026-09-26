@@ -25,7 +25,9 @@ Each case expects a successful tool call unless it declares
 - `matches`: search response text with a Python regular expression.
 - `max_latency_ms`: enforce an inclusive response-time limit.
 - `json_path`: compare exact values through dotted mapping keys and numeric list indexes.
-- `schema`: validate structured results with JSON Schema Draft 2020-12.
+- `schema`: validate structured results with JSON Schema Draft 2020-12;
+  document-local `#...` references are supported, while external references
+  are rejected to keep evaluation offline.
 
 JSON checks prefer MCP structured content and otherwise parse response text as
 JSON. Invalid expectation configuration exits with code `2` before the server

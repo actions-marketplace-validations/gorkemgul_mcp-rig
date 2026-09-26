@@ -90,6 +90,27 @@ tests:
     }
 
 
+def test_loads_schema_with_local_reference(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+tests:
+  - name: validates identifier
+    call: get_user
+    expect:
+      schema:
+        $defs:
+          identifier: {type: integer}
+        $ref: '#/$defs/identifier'
+""",
+        )
+    )
+
+    assert suite.cases[0].expect["schema"]["$ref"] == "#/$defs/identifier"
+
+
 @pytest.mark.parametrize(
     ("body", "message"),
     [
@@ -133,6 +154,14 @@ tests:
             "'max_latency_ms' must be a positive number",
         ),
         (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {max_latency_ms: .nan}}]",
+            "'max_latency_ms' must be a positive number",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {max_latency_ms: .inf}}]",
+            "'max_latency_ms' must be a positive number",
+        ),
+        (
             "server: python server.py\ntests: [{name: ping, call: ping, expect: {json_path: {}}}]",
             "'json_path' must be a non-empty mapping with non-empty string keys",
         ),
@@ -151,6 +180,14 @@ tests:
         (
             "server: python server.py\ntests: [{name: ping, call: ping, expect: {schema: {type: not-a-json-type}}}]",
             "invalid 'schema'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {schema: {$ref: '#/$defs/missing'}}}]",
+            "invalid 'schema' reference",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {schema: {$ref: 'https://example.invalid/schema'}}}]",
+            "external 'schema' references are not supported",
         ),
         ("server: [unclosed", "invalid YAML"),
     ],

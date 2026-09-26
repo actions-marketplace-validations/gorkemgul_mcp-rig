@@ -145,6 +145,30 @@ def test_schema_returns_multiple_errors_in_deterministic_order():
     ]
 
 
+def test_schema_resolves_local_references():
+    schema = {
+        "$defs": {"identifier": {"type": "integer"}},
+        "$ref": "#/$defs/identifier",
+    }
+
+    assert check({"schema": schema}, outcome("1")) == []
+    assert check({"schema": schema}, outcome('"wrong"')) == [
+        "schema: 'wrong' is not of type 'integer'"
+    ]
+
+
+def test_schema_evaluation_never_retrieves_remote_references(monkeypatch):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("schema evaluation attempted network access")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_if_called)
+
+    assert check(
+        {"schema": {"$ref": "https://example.invalid/schema"}},
+        outcome(structured={}),
+    ) == ["schema: unresolved reference"]
+
+
 def test_reports_every_failed_expectation():
     failures = check({"is_error": True, "contains": ["Ada", "admin"]}, outcome("Lin"))
     assert failures == [

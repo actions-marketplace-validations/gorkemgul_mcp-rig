@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 import jsonschema
+from referencing import Registry
 
 from mcp_rig.client import CallOutcome
 
@@ -51,12 +52,16 @@ def _check_json(expect: dict[str, Any], payload: Any) -> list[str]:
         elif actual != wanted:
             failures.append(f"json_path {path}: expected {wanted!r}, got {actual!r}")
     if "schema" in expect:
-        validator = jsonschema.Draft202012Validator(expect["schema"])
-        errors = sorted(
-            validator.iter_errors(payload),
-            key=lambda error: (tuple(str(part) for part in error.absolute_path), error.message),
-        )
-        failures.extend(f"schema: {error.message}" for error in errors)
+        validator = jsonschema.Draft202012Validator(expect["schema"], registry=Registry())
+        try:
+            errors = sorted(
+                validator.iter_errors(payload),
+                key=lambda error: (tuple(str(part) for part in error.absolute_path), error.message),
+            )
+        except jsonschema.exceptions._WrappedReferencingError:
+            failures.append("schema: unresolved reference")
+        else:
+            failures.extend(f"schema: {error.message}" for error in errors)
     return failures
 
 
