@@ -58,6 +58,38 @@ tests:
     assert suite.cases[0].expect == {}
 
 
+def test_loads_advanced_expectations(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            r"""
+server: python server.py
+tests:
+  - name: validates user
+    call: get_user
+    expect:
+      not_contains: [password, secret]
+      matches: 'user #[0-9]+'
+      max_latency_ms: 500.5
+      json_path:
+        user.name: Ada
+        user.roles.0: admin
+      schema:
+        type: object
+        required: [user]
+""",
+        )
+    )
+
+    assert suite.cases[0].expect == {
+        "not_contains": ["password", "secret"],
+        "matches": r"user #[0-9]+",
+        "max_latency_ms": 500.5,
+        "json_path": {"user.name": "Ada", "user.roles.0": "admin"},
+        "schema": {"type": "object", "required": ["user"]},
+    }
+
+
 @pytest.mark.parametrize(
     ("body", "message"),
     [
@@ -76,6 +108,50 @@ tests:
         ("server: {command: '\"\"'}\ntests: [{name: ping, call: ping}]", "server command is empty"),
         ("server: {command: python, args: [server.py, 3]}\ntests: [{name: ping, call: ping}]", "server.args"),
         ("server: {command: python, env: {PORT: 3}}\ntests: [{name: ping, call: ping}]", "server.env"),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {not_contains: []}}]",
+            "'not_contains' must be a string or non-empty list of strings",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {not_contains: [ok, 3]}}]",
+            "'not_contains' must be a string or non-empty list of strings",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {matches: 3}}]",
+            "'matches' must be a string",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {matches: '[unclosed'}}]",
+            "invalid 'matches' regular expression",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {max_latency_ms: true}}]",
+            "'max_latency_ms' must be a positive number",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {max_latency_ms: 0}}]",
+            "'max_latency_ms' must be a positive number",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {json_path: {}}}]",
+            "'json_path' must be a non-empty mapping with non-empty string keys",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {json_path: {1: value}}}]",
+            "'json_path' must be a non-empty mapping with non-empty string keys",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {json_path: {'': value}}}]",
+            "'json_path' must be a non-empty mapping with non-empty string keys",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {schema: []}}]",
+            "'schema' must be a mapping",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, expect: {schema: {type: not-a-json-type}}}]",
+            "invalid 'schema'",
+        ),
         ("server: [unclosed", "invalid YAML"),
     ],
 )

@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import yaml
 
 from mcp_rig.client import ServerSpec
 
-KNOWN_EXPECT_KEYS = {"is_error", "contains"}
+KNOWN_EXPECT_KEYS = {
+    "is_error",
+    "contains",
+    "not_contains",
+    "matches",
+    "max_latency_ms",
+    "json_path",
+    "schema",
+}
 
 
 class SpecError(ValueError):
@@ -121,11 +131,45 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         raise SpecError(f"{where} ({name}): 'is_error' must be a boolean")
     if "contains" in expect:
         contains = expect["contains"]
-        valid = isinstance(contains, str) or (
-            isinstance(contains, list)
-            and bool(contains)
-            and all(isinstance(value, str) for value in contains)
-        )
-        if not valid:
+        if not _is_string_or_non_empty_string_list(contains):
             raise SpecError(f"{where} ({name}): 'contains' must be a string or non-empty list of strings")
+    if "not_contains" in expect:
+        not_contains = expect["not_contains"]
+        if not _is_string_or_non_empty_string_list(not_contains):
+            raise SpecError(f"{where} ({name}): 'not_contains' must be a string or non-empty list of strings")
+    if "matches" in expect:
+        matches = expect["matches"]
+        if not isinstance(matches, str):
+            raise SpecError(f"{where} ({name}): 'matches' must be a string")
+        try:
+            re.compile(matches)
+        except re.error as exc:
+            raise SpecError(f"{where} ({name}): invalid 'matches' regular expression: {exc}") from exc
+    if "max_latency_ms" in expect:
+        limit = expect["max_latency_ms"]
+        if isinstance(limit, bool) or not isinstance(limit, (int, float)) or limit <= 0:
+            raise SpecError(f"{where} ({name}): 'max_latency_ms' must be a positive number")
+    if "json_path" in expect:
+        paths = expect["json_path"]
+        valid_paths = (
+            isinstance(paths, dict)
+            and bool(paths)
+            and all(isinstance(key, str) and bool(key.strip()) for key in paths)
+        )
+        if not valid_paths:
+            raise SpecError(f"{where} ({name}): 'json_path' must be a non-empty mapping with non-empty string keys")
+    if "schema" in expect:
+        schema = expect["schema"]
+        if not isinstance(schema, dict):
+            raise SpecError(f"{where} ({name}): 'schema' must be a mapping")
+        try:
+            jsonschema.Draft202012Validator.check_schema(schema)
+        except jsonschema.SchemaError as exc:
+            raise SpecError(f"{where} ({name}): invalid 'schema': {exc.message}") from exc
     return Case(name=name, call=call, args=args, expect=expect)
+
+
+def _is_string_or_non_empty_string_list(value: Any) -> bool:
+    return isinstance(value, str) or (
+        isinstance(value, list) and bool(value) and all(isinstance(item, str) for item in value)
+    )
