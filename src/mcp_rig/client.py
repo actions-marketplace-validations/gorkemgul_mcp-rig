@@ -12,9 +12,9 @@ from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
-from mcp import Client
+from mcp import Client, MCPError
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import TextContent
+from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, TextContent
 
 
 @dataclass
@@ -51,6 +51,7 @@ class CallOutcome:
     text: str
     structured: Any
     latency_ms: float
+    protocol_error_code: int | None = None
 
     def json(self) -> Any:
         if self.structured is not None:
@@ -88,11 +89,22 @@ class Probe:
         timeout_s: float = 30.0,
     ) -> CallOutcome:
         started = time.perf_counter()
-        result = await self._client.call_tool(
-            name,
-            arguments=args or {},
-            read_timeout_seconds=timeout_s,
-        )
+        try:
+            result = await self._client.call_tool(
+                name,
+                arguments=args or {},
+                read_timeout_seconds=timeout_s,
+            )
+        except MCPError as exc:
+            if exc.code in {CONNECTION_CLOSED, REQUEST_TIMEOUT}:
+                raise
+            return CallOutcome(
+                is_error=True,
+                text=exc.message,
+                structured=exc.data,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                protocol_error_code=exc.code,
+            )
         latency_ms = (time.perf_counter() - started) * 1000
         text = "\n".join(block.text for block in result.content if isinstance(block, TextContent))
         return CallOutcome(

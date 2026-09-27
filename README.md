@@ -35,6 +35,28 @@ mcp-rig run examples/fixture.yaml
 mcp-rig run examples/fixture.yaml --junit results.xml
 ```
 
+A suite names the stdio server command and the tool calls to verify:
+
+```yaml
+server:
+  command: python
+  args: [path/to/server.py]
+
+tests:
+  - name: adds two numbers
+    call: add
+    args: {a: 2, b: 3}
+    expect:
+      contains: "5"
+
+  - name: missing user returns an error
+    call: get_user
+    args: {user_id: 42}
+    expect:
+      is_error: true
+      contains: "not found"
+```
+
 Each case expects a successful tool call unless it declares
 `is_error: true`. Supported expectations are:
 
@@ -45,6 +67,10 @@ Each case expects a successful tool call unless it declares
 - `schema`: validate structured results with JSON Schema Draft 2020-12;
   document-local `#...` references are supported, while external references
   are rejected to keep evaluation offline.
+
+`is_error: true` accepts both an MCP tool result marked as an error and a
+JSON-RPC protocol error returned for that tool call. Timeouts and closed
+connections remain infrastructure errors.
 
 JSON checks prefer MCP structured content and otherwise parse response text as
 JSON. Each case may set a positive, finite `timeout_s`; the default is 30

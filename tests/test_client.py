@@ -2,8 +2,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from mcp import MCPError
+from mcp.types import CONNECTION_CLOSED, INVALID_PARAMS, REQUEST_TIMEOUT
 
-from mcp_rig.client import ServerSpec, connect
+from mcp_rig.client import Probe, ServerSpec, connect
 
 FIXTURE_TOOLS = {
     "add",
@@ -57,6 +59,35 @@ async def test_tool_error_is_a_normalized_outcome(fixture_spec):
 
     assert outcome.is_error is True
     assert "user 99 not found" in outcome.text
+
+
+@pytest.mark.anyio
+async def test_protocol_error_is_a_normalized_outcome():
+    class ProtocolErrorClient:
+        async def call_tool(self, *args, **kwargs):
+            raise MCPError(INVALID_PARAMS, "Unknown tool: missing")
+
+    outcome = await Probe(ProtocolErrorClient()).call("missing")
+
+    assert outcome.is_error is True
+    assert outcome.text == "Unknown tool: missing"
+    assert outcome.structured is None
+    assert outcome.protocol_error_code == INVALID_PARAMS
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("code", [CONNECTION_CLOSED, REQUEST_TIMEOUT])
+async def test_infrastructure_mcp_errors_are_not_normalized(code):
+    error = MCPError(code, "infrastructure failure")
+
+    class FailingClient:
+        async def call_tool(self, *args, **kwargs):
+            raise error
+
+    with pytest.raises(MCPError) as caught:
+        await Probe(FailingClient()).call("echo")
+
+    assert caught.value is error
 
 
 @pytest.mark.anyio
