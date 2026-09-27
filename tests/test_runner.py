@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 
 import pytest
+from mcp import MCPError
+from mcp.types import INVALID_PARAMS
 
-from mcp_rig.client import CallOutcome, ServerSpec
+from mcp_rig.client import CallOutcome, Probe, ServerSpec
 from mcp_rig.runner import CaseStatus, ErrorCategory, run_suite
 from mcp_rig.spec import Case, Suite
 
@@ -40,6 +42,29 @@ async def test_tool_error_can_be_an_expected_passing_result(fixture_spec, tmp_pa
 
     assert result.ok is True
     assert result.results[0].outcome.is_error is True
+
+
+@pytest.mark.anyio
+async def test_protocol_error_can_be_an_expected_passing_result(monkeypatch, tmp_path):
+    class ProtocolErrorClient:
+        async def call_tool(self, *args, **kwargs):
+            raise MCPError(INVALID_PARAMS, "Unknown tool: missing")
+
+    @asynccontextmanager
+    async def fake_connect(spec, show_server_logs=False):
+        yield Probe(ProtocolErrorClient())
+
+    monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
+    suite = Suite(
+        path=tmp_path / "suite.yaml",
+        server=ServerSpec("unused"),
+        cases=[Case("missing tool", "missing", expect={"is_error": True, "contains": "Unknown tool"})],
+    )
+
+    result = await run_suite(suite)
+
+    assert result.ok is True
+    assert result.results[0].outcome.protocol_error_code == INVALID_PARAMS
 
 
 @pytest.mark.anyio
