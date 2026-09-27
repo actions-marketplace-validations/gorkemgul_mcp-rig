@@ -2,7 +2,9 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from mcp_rig.junit import write_junit
+from mcp_rig.batch import BatchFailure, BatchFailureCategory, BatchResult, SuiteRun
+from mcp_rig.discovery import DiscoveryError
+from mcp_rig.junit import write_batch_junit, write_junit
 from mcp_rig.runner import CaseResult, CaseStatus, ErrorCategory, InfrastructureError, SuiteResult
 
 
@@ -98,3 +100,119 @@ def test_write_junit_escapes_xml_content(tmp_path):
 def test_write_junit_propagates_file_errors(tmp_path):
     with pytest.raises(OSError):
         write_junit(tmp_path / "missing" / "results.xml", "suite.yaml", SuiteResult([]))
+
+
+def test_write_batch_junit_emits_ordered_suite_children_and_root_totals(tmp_path):
+    output = tmp_path / "results.xml"
+    first = SuiteResult(
+        [CaseResult(name="passes", status=CaseStatus.PASSED, elapsed_ms=1500.0)]
+    )
+    second = SuiteResult(
+        [
+            CaseResult(
+                name="fails",
+                status=CaseStatus.FAILED,
+                elapsed_ms=250.0,
+                failures=["wrong value"],
+            )
+        ]
+    )
+    batch = BatchResult(
+        [
+            SuiteRun(tmp_path / "a.yaml", result=first),
+            SuiteRun(tmp_path / "b.yaml", result=second),
+        ],
+        [],
+    )
+
+    write_batch_junit(output, batch)
+
+    root = ET.parse(output).getroot()
+    assert root.attrib == {
+        "tests": "2",
+        "failures": "1",
+        "errors": "0",
+        "skipped": "0",
+        "time": "1.750",
+    }
+    suites = root.findall("testsuite")
+    assert [suite.attrib["name"] for suite in suites] == [
+        str(tmp_path / "a.yaml"),
+        str(tmp_path / "b.yaml"),
+    ]
+    assert suites[0].find("testcase/failure") is None
+    assert suites[1].find("testcase/failure").text == "wrong value"
+
+
+def test_write_batch_junit_adds_synthetic_discovery_parse_and_execution_errors(
+    tmp_path,
+):
+    output = tmp_path / "results.xml"
+    missing = tmp_path / "missing.yaml"
+    invalid = tmp_path / "invalid.yaml"
+    crashed = tmp_path / "crashed.yaml"
+    batch = BatchResult(
+        [
+            SuiteRun(
+                invalid,
+                error=BatchFailure(
+                    BatchFailureCategory.CONFIGURATION,
+                    "SpecError",
+                    "invalid suite",
+                ),
+            ),
+            SuiteRun(
+                crashed,
+                error=BatchFailure(
+                    BatchFailureCategory.EXECUTION,
+                    "RuntimeError",
+                    "runner crashed",
+                ),
+            ),
+        ],
+        [DiscoveryError(missing, "FileNotFoundError", "missing")],
+    )
+
+    write_batch_junit(output, batch)
+
+    root = ET.parse(output).getroot()
+    assert root.attrib == {
+        "tests": "3",
+        "failures": "0",
+        "errors": "3",
+        "skipped": "0",
+        "time": "0.000",
+    }
+    suites = root.findall("testsuite")
+    assert [suite.attrib["name"] for suite in suites] == [
+        str(missing),
+        str(invalid),
+        str(crashed),
+    ]
+    cases = [suite.find("testcase") for suite in suites]
+    assert [case.attrib["name"] for case in cases] == [
+        "[target configuration]",
+        "[suite configuration]",
+        "[suite execution]",
+    ]
+    errors = [case.find("error") for case in cases]
+    assert [error.attrib for error in errors] == [
+        {"type": "configuration.FileNotFoundError", "message": "missing"},
+        {"type": "configuration.SpecError", "message": "invalid suite"},
+        {"type": "execution.RuntimeError", "message": "runner crashed"},
+    ]
+
+
+def test_write_junit_compatibility_wrapper_keeps_existing_document(tmp_path):
+    output = tmp_path / "results.xml"
+    result = SuiteResult(
+        [CaseResult(name="passes", status=CaseStatus.PASSED, elapsed_ms=10.0)]
+    )
+
+    write_junit(output, "suite.yaml", result)
+
+    root = ET.parse(output).getroot()
+    assert root.attrib == {}
+    assert [suite.attrib["name"] for suite in root.findall("testsuite")] == [
+        "suite.yaml"
+    ]

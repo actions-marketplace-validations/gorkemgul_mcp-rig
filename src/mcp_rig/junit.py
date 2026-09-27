@@ -5,11 +5,48 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from mcp_rig.batch import BatchResult
 from mcp_rig.runner import CaseStatus, InfrastructureError, SuiteResult
 
 
 def write_junit(path: str | Path, suite_name: str, result: SuiteResult) -> None:
     root = ET.Element("testsuites")
+    _append_suite(root, suite_name, result)
+    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def write_batch_junit(path: str | Path, result: BatchResult) -> None:
+    root = ET.Element("testsuites")
+    for error in result.discovery_errors:
+        _append_synthetic_error(
+            root,
+            suite_name=str(error.target),
+            case_name="[target configuration]",
+            category="configuration",
+            exception_type=error.exception_type,
+            message=error.message,
+        )
+    for item in result.suites:
+        if item.result is not None:
+            _append_suite(root, str(item.path), item.result)
+        elif item.error is not None:
+            _append_synthetic_error(
+                root,
+                suite_name=str(item.path),
+                case_name=f"[suite {item.error.category}]",
+                category=item.error.category,
+                exception_type=item.error.exception_type,
+                message=item.error.message,
+            )
+
+    children = root.findall("testsuite")
+    for attribute in ("tests", "failures", "errors", "skipped"):
+        root.set(attribute, str(sum(int(suite.attrib[attribute]) for suite in children)))
+    root.set("time", f"{sum(float(suite.attrib['time']) for suite in children):.3f}")
+    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def _append_suite(root: ET.Element, suite_name: str, result: SuiteResult) -> None:
     suite = ET.SubElement(
         root,
         "testsuite",
@@ -47,7 +84,40 @@ def write_junit(path: str | Path, suite_name: str, result: SuiteResult) -> None:
             time="0.000",
         )
         _add_error(case, result.suite_error)
-    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def _append_synthetic_error(
+    root: ET.Element,
+    suite_name: str,
+    case_name: str,
+    category: str,
+    exception_type: str,
+    message: str,
+) -> None:
+    suite = ET.SubElement(
+        root,
+        "testsuite",
+        name=suite_name,
+        tests="1",
+        failures="0",
+        errors="1",
+        skipped="0",
+        time="0.000",
+    )
+    case = ET.SubElement(
+        suite,
+        "testcase",
+        classname=suite_name,
+        name=case_name,
+        time="0.000",
+    )
+    error = ET.SubElement(
+        case,
+        "error",
+        type=f"{category}.{exception_type}",
+        message=message,
+    )
+    error.text = message
 
 
 def _add_error(case: ET.Element, error: InfrastructureError) -> None:
