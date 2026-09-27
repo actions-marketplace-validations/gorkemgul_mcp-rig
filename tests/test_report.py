@@ -1,5 +1,7 @@
+from mcp_rig.checks import CheckResult
 from mcp_rig.client import CallOutcome
-from mcp_rig.report import render_suite
+from mcp_rig.lint import LintWarning
+from mcp_rig.report import render_check, render_suite
 from mcp_rig.runner import CaseResult, CaseStatus, ErrorCategory, InfrastructureError, SuiteResult
 
 
@@ -97,3 +99,59 @@ def test_render_suite_teardown_error_without_rewriting_completed_case():
     assert "✓ completed (2 ms)" in text
     assert "! suite teardown: RuntimeError: close failed" in text
     assert "1 passed, 0 failed, 1 error, 0 skipped" in text
+
+
+def test_render_check_plain_text_with_failure_and_lint_warning():
+    text = render_check(
+        [
+            CheckResult("lists tools", True),
+            CheckResult("unknown tool returns an error", False, "got success"),
+        ],
+        [LintWarning("undocumented", "no-description", "tool has no description")],
+    )
+
+    assert text == "\n".join(
+        [
+            "Protocol checks",
+            "  ✓ lists tools",
+            "  ✗ unknown tool returns an error",
+            "      got success",
+            "Lint",
+            "  ⚠ undocumented [no-description] tool has no description",
+            "1/2 checks passed, 1 lint warning",
+        ]
+    )
+
+
+def test_render_check_shows_empty_lint_section_and_plural_summary():
+    text = render_check([CheckResult("lists tools", True)], [])
+
+    assert text == "\n".join(
+        [
+            "Protocol checks",
+            "  ✓ lists tools",
+            "Lint",
+            "  no warnings",
+            "1/1 checks passed, 0 lint warnings",
+        ]
+    )
+
+
+def test_render_check_color_wraps_only_status_symbols():
+    text = render_check(
+        [
+            CheckResult("lists tools", True),
+            CheckResult("unknown tool returns an error", False, "got success"),
+        ],
+        [LintWarning("undocumented", "no-description", "tool has no description")],
+        color=True,
+    )
+
+    assert "\033[32m✓\033[0m lists tools" in text
+    assert "\033[31m✗\033[0m unknown tool returns an error" in text
+    assert "\033[33m⚠\033[0m undocumented" in text
+    lines = text.splitlines()
+    assert "Protocol checks" in lines
+    assert "      got success" in lines
+    assert "Lint" in lines
+    assert "1/2 checks passed, 1 lint warning" in lines

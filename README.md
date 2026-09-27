@@ -49,5 +49,45 @@ failures only, and `2` for configuration or infrastructure failures. Add
 `--server-logs` to expose the MCP server's stderr while diagnosing startup or
 tool behavior.
 
-This release supports local stdio servers and tools only. Protocol checks and
-PyPI publication arrive in later increments.
+## Check a server without a suite
+
+Run protocol checks and inspect tool-definition quality without writing YAML:
+
+```bash
+.venv/bin/mcp-rig check "python path/to/server.py"
+```
+
+The command verifies that the server lists tools, returns an MCP tool error for
+an unknown tool, and remains responsive after the negative call. It also warns
+about missing or short descriptions, invalid input schemas, undocumented
+parameters, and tool descriptions that are likely to be confused with each
+other.
+
+Lint warnings are advisory by default. Use `--strict` to make them fail CI:
+
+```bash
+.venv/bin/mcp-rig check "python path/to/server.py" --strict
+```
+
+`--probe-invalid-args` calls every tool that declares required parameters with
+an empty argument object and checks that the call is rejected. Use this option
+only with development or test servers: a server that does not enforce its
+declared schema could execute the tool body.
+
+```bash
+.venv/bin/mcp-rig check "python path/to/server.py" --probe-invalid-args
+```
+
+Server stderr is hidden by default. Add `--server-logs` while diagnosing the
+server:
+
+```bash
+.venv/bin/mcp-rig check "python path/to/server.py" --server-logs
+```
+
+For `check`, exit code `0` means all protocol checks passed, `1` means a
+protocol check failed or strict lint found warnings, and `2` means the command,
+server process, connection, or teardown failed.
+
+This release supports local stdio servers and tools only. PyPI publication
+arrives in a later increment.

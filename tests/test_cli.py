@@ -1,7 +1,13 @@
 import shlex
 import xml.etree.ElementTree as ET
+from contextlib import asynccontextmanager
+from pathlib import Path
 
+import pytest
+
+import mcp_rig.cli as cli_module
 from mcp_rig.cli import main
+from mcp_rig.client import CallOutcome, ToolInfo
 
 
 def write_suite(tmp_path, fixture_spec, cases):
@@ -9,6 +15,10 @@ def write_suite(tmp_path, fixture_spec, cases):
     path = tmp_path / "suite.yaml"
     path.write_text(f"server: {command!r}\ntests:\n{cases}", encoding="utf-8")
     return path
+
+
+def server_command(spec):
+    return shlex.join([spec.command, *spec.args])
 
 
 PASSING = """\
@@ -255,3 +265,111 @@ def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, caps
     assert "invalid 'matches' regular expression" in captured.err
     assert "could not run server" not in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_check_passes_with_lint_warnings(fixture_spec, capsys):
+    code = main(["check", server_command(fixture_spec)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "✓ lists tools" in captured.out
+    assert "✓ unknown tool returns an error" in captured.out
+    assert "✓ server alive after bad calls" in captured.out
+    assert "undocumented [no-description]" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_check_strict_fails_on_lint_warnings(fixture_spec, capsys):
+    code = main(["check", server_command(fixture_spec), "--strict"])
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "3/3 checks passed" in captured.out
+    assert "undocumented [no-description]" in captured.out
+
+
+def test_check_probe_invalid_args_reports_required_argument_checks(fixture_spec, capsys):
+    code = main(
+        [
+            "check",
+            server_command(fixture_spec),
+            "--probe-invalid-args",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "✓ add: missing required args rejected" in captured.out
+    assert "✓ get_user: missing required args rejected" in captured.out
+
+
+def test_check_empty_server_command_exits_two_without_traceback(capsys):
+    code = main(["check", ""])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "error:" in captured.err
+    assert "server command is empty" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_check_unstartable_server_exits_two_without_traceback(capsys):
+    code = main(["check", "/definitely/missing/mcp-rig-server"])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "error:" in captured.err
+    assert "could not run server" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_check_server_logs_are_hidden_by_default_and_visible_with_flag(
+    fixture_spec,
+    capfd,
+):
+    wrapper = Path(__file__).parent / "fixtures" / "stderr_server.py"
+    command = shlex.join([fixture_spec.command, str(wrapper)])
+
+    assert main(["check", command]) == 0
+    assert "mcp-rig-check-server-log" not in capfd.readouterr().err
+
+    assert main(["check", command, "--server-logs"]) == 0
+    assert "mcp-rig-check-server-log" in capfd.readouterr().err
+
+
+@pytest.mark.parametrize(("strict", "expected_code"), [(False, 0), (True, 1)])
+def test_check_handles_valid_boolean_property_schema(
+    monkeypatch,
+    capsys,
+    strict,
+    expected_code,
+):
+    class BooleanSchemaProbe:
+        async def list_tools(self):
+            return [
+                ToolInfo(
+                    "boolean_property",
+                    "Return a value accepted by the schema.",
+                    {"type": "object", "properties": {"value": True}},
+                )
+            ]
+
+        async def call(self, name, args=None, timeout_s=30.0):
+            return CallOutcome(True, "unknown tool", None, 1.0)
+
+    @asynccontextmanager
+    async def fake_connect(spec, show_server_logs=False):
+        yield BooleanSchemaProbe()
+
+    monkeypatch.setattr(cli_module, "connect", fake_connect)
+    argv = ["check", "fixture-server"]
+    if strict:
+        argv.append("--strict")
+
+    code = main(argv)
+
+    captured = capsys.readouterr()
+    assert code == expected_code
+    assert "3/3 checks passed, 1 lint warning" in captured.out
+    assert "boolean_property [param-no-description]" in captured.out
+    assert "error:" not in captured.err
