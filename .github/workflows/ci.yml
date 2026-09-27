@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests
+      - name: Test
+        run: pytest -q
+      - name: Check dependencies
+        run: python -m pip check
+      - name: Dogfood suite runner
+        run: mcp-rig run examples/fixture.yaml --junit report.xml
+      - name: Dogfood server checks
+        run: mcp-rig check "python tests/fixtures/fixture_server.py"
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install packaging tools
+        run: python -m pip install build twine
+      - name: Build distributions
+        run: python -m build
+      - name: Check distributions
+        run: python -m twine check dist/*
+      - name: Smoke-test wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/mcp-rig-wheel"
+          "$RUNNER_TEMP/mcp-rig-wheel/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/mcp-rig-wheel/bin/mcp-rig" check "$RUNNER_TEMP/mcp-rig-wheel/bin/python tests/fixtures/fixture_server.py"
