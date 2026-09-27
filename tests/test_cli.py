@@ -1,5 +1,6 @@
 import shlex
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from mcp_rig.cli import main
 
@@ -9,6 +10,10 @@ def write_suite(tmp_path, fixture_spec, cases):
     path = tmp_path / "suite.yaml"
     path.write_text(f"server: {command!r}\ntests:\n{cases}", encoding="utf-8")
     return path
+
+
+def server_command(spec):
+    return shlex.join([spec.command, *spec.args])
 
 
 PASSING = """\
@@ -255,3 +260,73 @@ def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, caps
     assert "invalid 'matches' regular expression" in captured.err
     assert "could not run server" not in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_check_passes_with_lint_warnings(fixture_spec, capsys):
+    code = main(["check", server_command(fixture_spec)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "✓ lists tools" in captured.out
+    assert "✓ unknown tool returns an error" in captured.out
+    assert "✓ server alive after bad calls" in captured.out
+    assert "undocumented [no-description]" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_check_strict_fails_on_lint_warnings(fixture_spec, capsys):
+    code = main(["check", server_command(fixture_spec), "--strict"])
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "3/3 checks passed" in captured.out
+    assert "undocumented [no-description]" in captured.out
+
+
+def test_check_probe_invalid_args_reports_required_argument_checks(fixture_spec, capsys):
+    code = main(
+        [
+            "check",
+            server_command(fixture_spec),
+            "--probe-invalid-args",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "✓ add: missing required args rejected" in captured.out
+    assert "✓ get_user: missing required args rejected" in captured.out
+
+
+def test_check_empty_server_command_exits_two_without_traceback(capsys):
+    code = main(["check", ""])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "error:" in captured.err
+    assert "server command is empty" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_check_unstartable_server_exits_two_without_traceback(capsys):
+    code = main(["check", "/definitely/missing/mcp-rig-server"])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "error:" in captured.err
+    assert "could not run server" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_check_server_logs_are_hidden_by_default_and_visible_with_flag(
+    fixture_spec,
+    capfd,
+):
+    wrapper = Path(__file__).parent / "fixtures" / "stderr_server.py"
+    command = shlex.join([fixture_spec.command, str(wrapper)])
+
+    assert main(["check", command]) == 0
+    assert "mcp-rig-check-server-log" not in capfd.readouterr().err
+
+    assert main(["check", command, "--server-logs"]) == 0
+    assert "mcp-rig-check-server-log" in capfd.readouterr().err
