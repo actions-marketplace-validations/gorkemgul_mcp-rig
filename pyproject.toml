@@ -9,12 +9,28 @@ description = "Deterministic, CI-friendly testing for MCP servers"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["mcp", "testing", "cli", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = [
   "mcp>=2.2,<3",
   "pyyaml>=6",
   "jsonschema>=4",
   "referencing>=0.28.4",
 ]
+
+[project.urls]
+Repository = "https://github.com/gorkemgul/mcp-rig"
+Issues = "https://github.com/gorkemgul/mcp-rig/issues"
 
 [project.scripts]
 mcp-rig = "mcp_rig.cli:main"
