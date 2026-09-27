@@ -1,6 +1,6 @@
-# From the repository root:
-# .venv/bin/mcp-rig run examples/fixture.yaml --junit /tmp/mcp-rig-results.xml
-server: ../.venv/bin/python ../tests/fixtures/fixture_server.py
+# From the repository root with the development environment activated:
+# mcp-rig run examples/fixture.yaml --junit /tmp/mcp-rig-results.xml
+server: python ../tests/fixtures/fixture_server.py
 
 tests:
   - name: adds two numbers
