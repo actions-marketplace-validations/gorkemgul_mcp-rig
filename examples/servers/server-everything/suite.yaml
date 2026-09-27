@@ -1,0 +1,21 @@
+server:
+  command: npx
+  args: [-y, "@modelcontextprotocol/server-everything@2026.8.18"]
+
+tests:
+  - name: echoes a message
+    call: echo
+    args:
+      message: mcp-rig-example
+    expect:
+      is_error: false
+      contains: mcp-rig-example
+
+  - name: adds two numbers
+    call: get-sum
+    args:
+      a: 2
+      b: 3
+    expect:
+      is_error: false
+      contains: "5"

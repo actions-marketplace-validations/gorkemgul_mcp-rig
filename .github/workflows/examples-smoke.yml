@@ -1,0 +1,63 @@
+name: external example smoke tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install MCP Rig
+        run: python -m pip install .
+      - name: Install pinned Firefox browser
+        run: npx -y playwright@1.64.0-alpha-1789764292000 install --with-deps firefox
+      - name: Run Playwright example
+        run: mcp-rig run examples/servers/playwright/suite.yaml
+
+  server-everything:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install MCP Rig
+        run: python -m pip install .
+      - name: Run Everything Server example
+        run: mcp-rig run examples/servers/server-everything/suite.yaml
+
+  time:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install MCP Rig and uv
+        run: python -m pip install . uv==0.12.2
+      - name: Run Time example
+        run: mcp-rig run examples/servers/time/suite.yaml
