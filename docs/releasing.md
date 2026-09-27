@@ -27,6 +27,7 @@ before the first release and confirm that `mcp-rig` is still available.
 From a clean checkout of `main` with the development environment activated:
 
 ```bash
+python -m pip install build twine
 python scripts/check_release_tag.py v0.1.0
 ruff check src tests scripts
 pytest -q
