@@ -10,9 +10,10 @@ from mcp_rig.cli import main
 from mcp_rig.client import CallOutcome, ToolInfo
 
 
-def write_suite(tmp_path, fixture_spec, cases):
+def write_suite(tmp_path, fixture_spec, cases, name="suite.yaml"):
     command = shlex.join([fixture_spec.command, *fixture_spec.args])
-    path = tmp_path / "suite.yaml"
+    path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"server: {command!r}\ntests:\n{cases}", encoding="utf-8")
     return path
 
@@ -213,12 +214,19 @@ def test_run_writes_setup_error_junit_report(tmp_path):
     assert cases[1].find("error") is not None
 
 
-def test_invalid_configuration_does_not_create_junit_report(tmp_path, capsys):
+def test_invalid_configuration_writes_synthetic_junit_report(tmp_path, capsys):
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text("server: python server.py\ntests: []\n", encoding="utf-8")
     report_path = tmp_path / "results.xml"
 
-    assert main(["run", str(tmp_path / "missing.yaml"), "--junit", str(report_path)]) == 2
+    assert main(["run", str(invalid), "--junit", str(report_path)]) == 2
     captured = capsys.readouterr()
-    assert not report_path.exists()
+    suite = ET.parse(report_path).getroot().find("testsuite")
+    assert suite is not None
+    case = suite.find("testcase")
+    assert case is not None
+    assert case.attrib["name"] == "[suite configuration]"
+    assert case.find("error") is not None
     assert "error:" in captured.err
 
 
@@ -246,6 +254,159 @@ def test_junit_path_cannot_overwrite_suite_file(tmp_path, capsys):
     assert suite_path.read_text(encoding="utf-8") == original
     assert "JUnit report path must differ from suite path" in captured.err
     assert "could not run server" not in captured.err
+
+
+def test_run_accepts_multiple_files_and_recursive_directory_targets(
+    tmp_path, fixture_spec, capsys
+):
+    suites = tmp_path / "suites"
+    direct = write_suite(
+        suites,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: direct case"),
+        "z.yaml",
+    )
+    nested = write_suite(
+        suites,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: nested case"),
+        "nested/a.yml",
+    )
+
+    assert main(["run", str(direct), str(suites)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.index(str(nested.resolve())) < captured.out.index(
+        str(direct.resolve())
+    )
+    assert "✓ nested case" in captured.out
+    assert "✓ direct case" in captured.out
+    assert "Suites: 2 passed, 0 failed, 0 errors" in captured.out
+
+
+def test_run_continues_after_invalid_suite_and_returns_two(
+    tmp_path, fixture_spec, capsys
+):
+    invalid = tmp_path / "a-invalid.yaml"
+    invalid.write_text("server: python server.py\ntests: []\n", encoding="utf-8")
+    valid = write_suite(
+        tmp_path,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: runs after invalid"),
+        "b-valid.yaml",
+    )
+
+    assert main(["run", str(invalid), str(valid)]) == 2
+    captured = capsys.readouterr()
+    assert "a-invalid.yaml" in captured.err
+    assert "'tests' must be a non-empty list" in captured.err
+    assert "✓ runs after invalid" in captured.out
+    assert "Suites: 1 passed, 0 failed, 1 error" in captured.out
+
+
+def test_run_mixed_assertion_and_infrastructure_failures_returns_two(
+    tmp_path, fixture_spec, capsys
+):
+    failing = write_suite(tmp_path, fixture_spec, FAILING, "a-failing.yaml")
+    broken = tmp_path / "b-broken.yaml"
+    broken.write_text(
+        "server: /definitely/missing/mcp-rig-server\n"
+        "tests:\n  - {name: never, call: echo}\n",
+        encoding="utf-8",
+    )
+    passing = write_suite(
+        tmp_path,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: still runs"),
+        "c-passing.yaml",
+    )
+
+    assert main(["run", str(failing), str(broken), str(passing)]) == 2
+    captured = capsys.readouterr()
+    assert "✗ wrong" in captured.out
+    assert "! suite setup:" in captured.out
+    assert "✓ still runs" in captured.out
+    assert "Suites: 1 passed, 1 failed, 1 error" in captured.out
+
+
+def test_run_writes_synthetic_junit_for_missing_or_invalid_targets(
+    tmp_path, capsys
+):
+    missing = tmp_path / "missing.yaml"
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text("server: python server.py\ntests: []\n", encoding="utf-8")
+    report = tmp_path / "results.xml"
+
+    assert main(
+        ["run", str(missing), str(invalid), "--junit", str(report)]
+    ) == 2
+    capsys.readouterr()
+    suites = ET.parse(report).getroot().findall("testsuite")
+    assert [suite.find("testcase").attrib["name"] for suite in suites] == [
+        "[target configuration]",
+        "[suite configuration]",
+    ]
+
+
+def test_junit_path_cannot_overwrite_suite_discovered_inside_directory(
+    tmp_path, capsys
+):
+    suites = tmp_path / "suites"
+    suites.mkdir()
+    report = suites / "report.yaml"
+    original = (
+        "server: /definitely/missing/mcp-rig-server\n"
+        "tests:\n  - {name: never, call: echo}\n"
+    )
+    report.write_text(original, encoding="utf-8")
+
+    assert main(["run", str(suites), "--junit", str(report)]) == 2
+    captured = capsys.readouterr()
+    assert report.read_text(encoding="utf-8") == original
+    assert "JUnit report path must differ from suite path" in captured.err
+    assert "suite setup" not in captured.out
+
+
+def test_server_logs_flag_applies_to_every_suite(tmp_path, fixture_spec, capfd):
+    cases = """\
+  - name: writes log
+    call: write_stderr
+    args: {message: LOG_MESSAGE}
+    expect: {contains: written}
+"""
+    write_suite(
+        tmp_path,
+        fixture_spec,
+        cases.replace("LOG_MESSAGE", "first-batch-log"),
+        "a.yaml",
+    )
+    write_suite(
+        tmp_path,
+        fixture_spec,
+        cases.replace("LOG_MESSAGE", "second-batch-log"),
+        "b.yaml",
+    )
+
+    assert main(["run", str(tmp_path)]) == 0
+    assert "batch-log" not in capfd.readouterr().err
+    assert main(["run", str(tmp_path), "--server-logs"]) == 0
+    captured = capfd.readouterr()
+    assert "first-batch-log" in captured.err
+    assert "second-batch-log" in captured.err
+
+
+def test_run_single_file_output_remains_unchanged(
+    tmp_path, fixture_spec, capsys, monkeypatch
+):
+    write_suite(tmp_path, fixture_spec, PASSING)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["run", "suite.yaml"]) == 0
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert lines[0] == "MCP Rig — suite.yaml"
+    assert "✓ adds (" in captured.out
+    assert lines[-1] == "1 passed, 0 failed, 0 errors, 0 skipped"
+    assert "Suites:" not in captured.out
 
 
 def test_invalid_advanced_expectation_fails_before_server_startup(tmp_path, capsys):

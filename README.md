@@ -35,6 +35,21 @@ mcp-rig run examples/fixture.yaml
 mcp-rig run examples/fixture.yaml --junit results.xml
 ```
 
+Run several suites by passing more files or a directory. Directories are
+searched recursively for `.yaml` and `.yml` files:
+
+```bash
+mcp-rig run tests/mcp/smoke.yaml tests/mcp/regression.yaml
+mcp-rig run tests/mcp/ --junit results.xml
+```
+
+MCP Rig resolves and deduplicates suite paths, then runs them sequentially in
+deterministic path order. A configuration or infrastructure error in one suite
+does not prevent later suites from running. Batch runs print per-suite results
+followed by aggregate suite and case counts. A JUnit file contains one
+`<testsuite>` for every suite or invalid target beneath a shared `<testsuites>`
+root.
+
 See the [real-world server examples](https://github.com/gorkemgul/mcp-rig/tree/main/examples) for
 pinned suites that exercise Playwright MCP, the MCP Everything reference server, and the Time
 MCP server. External examples are kept out of the main CI path and run in a separate manual and
@@ -90,11 +105,12 @@ Terminal and JUnit reports distinguish four states:
 - skipped: the case was not started after an infrastructure error.
 
 `--junit PATH` writes CI-readable XML without creating missing parent
-directories. Invalid configuration exits before the server starts and does not
-write a JUnit report. Exit codes are `0` for success, `1` for assertion
-failures only, and `2` for configuration or infrastructure failures. Add
-`--server-logs` to expose the MCP server's stderr while diagnosing startup or
-tool behavior.
+directories. Invalid targets and suite configuration are represented as
+synthetic JUnit errors. Exit codes are `0` for success, `1` for assertion
+failures only, and `2` for any configuration, infrastructure, or report-writing
+error; code `2` takes precedence when a batch contains both kinds of failure.
+Add `--server-logs` to expose every suite server's stderr while diagnosing
+startup or tool behavior.
 
 ## Check a server without a suite
 

@@ -8,13 +8,13 @@ from pathlib import Path
 
 import anyio
 
+from mcp_rig.batch import BatchResult, run_batch
 from mcp_rig.checks import CheckResult, run_protocol_checks
 from mcp_rig.client import ServerSpec, connect
-from mcp_rig.junit import write_junit
+from mcp_rig.discovery import discover_suites
+from mcp_rig.junit import write_batch_junit
 from mcp_rig.lint import LintWarning, lint_tools
-from mcp_rig.report import render_check, render_suite
-from mcp_rig.runner import run_suite
-from mcp_rig.spec import SpecError, load_suite
+from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -28,7 +28,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     run_parser = commands.add_parser("run", help="run a YAML tool suite")
-    run_parser.add_argument("suite", help="path to a YAML suite")
+    run_parser.add_argument(
+        "targets",
+        nargs="+",
+        metavar="TARGET",
+        help="YAML suite file or directory containing suites",
+    )
     run_parser.add_argument(
         "--server-logs",
         action="store_true",
@@ -71,31 +76,41 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_run(args: argparse.Namespace, color: bool) -> int:
-    if args.junit and _same_path(args.suite, args.junit):
+    discovery = discover_suites(args.targets)
+    if args.junit and any(_same_path(path, args.junit) for path in discovery.paths):
         print("error: JUnit report path must differ from suite path", file=sys.stderr)
         return EXIT_USAGE
-    try:
-        suite = load_suite(args.suite)
-        result = anyio.run(run_suite, suite, args.server_logs)
-    except SpecError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_USAGE
-    except Exception as exc:  # noqa: BLE001 - CLI converts infrastructure errors to exit 2
-        print(f"error: {args.suite}: could not run server: {_describe(exc)}", file=sys.stderr)
-        return EXIT_USAGE
 
-    print(render_suite(args.suite, result, color=color))
+    result = anyio.run(run_batch, discovery, args.server_logs)
+    errors = render_batch_errors(result)
+    if errors:
+        for line in errors.splitlines():
+            print(f"error: {line}", file=sys.stderr)
+
+    print(_render_run(args.targets, result, color=color))
     if args.junit:
         try:
-            write_junit(args.junit, args.suite, result)
+            write_batch_junit(args.junit, result)
         except OSError as exc:
             print(f"error: {args.junit}: could not write JUnit report: {_describe(exc)}", file=sys.stderr)
             return EXIT_USAGE
-    if result.errors:
+    if result.has_errors:
         return EXIT_USAGE
-    if result.failed:
+    if result.has_failures:
         return EXIT_FAILED
     return EXIT_OK
+
+
+def _render_run(targets: list[str], result: BatchResult, color: bool) -> str:
+    if (
+        len(targets) == 1
+        and not result.discovery_errors
+        and len(result.suites) == 1
+        and result.suites[0].result is not None
+        and Path(targets[0]).is_file()
+    ):
+        return render_suite(targets[0], result.suites[0].result, color=color)
+    return render_batch(result, color=color)
 
 
 def _cmd_check(args: argparse.Namespace, color: bool) -> int:
@@ -138,7 +153,7 @@ def _describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
-def _same_path(first: str, second: str) -> bool:
+def _same_path(first: str | Path, second: str | Path) -> bool:
     try:
         return Path(first).samefile(second)
     except OSError:
