@@ -5,6 +5,21 @@ Deterministic, CI-friendly testing for Model Context Protocol servers.
 MCP Rig currently launches local MCP servers over stdio and runs declarative
 tool suites in YAML.
 
+## Installation
+
+Install MCP Rig as an isolated command-line tool with
+[pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install mcp-rig
+```
+
+Or install it into the active Python environment with pip:
+
+```bash
+pip install mcp-rig
+```
+
 ## Development setup
 
 ```bash
@@ -90,8 +105,7 @@ For `check`, exit code `0` means all protocol checks passed, `1` means a
 protocol check failed or strict lint found warnings, and `2` means the command,
 server process, connection, or teardown failed.
 
-This release supports local stdio servers and tools only. PyPI publication
-arrives in a later increment.
+This release supports local stdio servers and tools only.
 
 Repository CI tests Python 3.11 through 3.13 and validates both wheel and
 source distributions without publishing them.
