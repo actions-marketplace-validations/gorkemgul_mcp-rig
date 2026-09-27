@@ -1,0 +1,96 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ github.event.release.prerelease == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python scripts/check_release_tag.py "$RELEASE_TAG"
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install project and packaging tools
+        run: python -m pip install -e ".[dev]" build twine
+      - name: Lint
+        run: ruff check src tests scripts
+      - name: Test
+        run: pytest -q
+      - name: Check dependencies
+        run: python -m pip check
+      - name: Build distributions
+        run: |
+          test ! -e dist
+          python -m build
+      - name: Verify distribution filenames
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          with Path("pyproject.toml").open("rb") as pyproject_file:
+              version = tomllib.load(pyproject_file)["project"]["version"]
+          expected = {
+              f"mcp_rig-{version}-py3-none-any.whl",
+              f"mcp_rig-{version}.tar.gz",
+          }
+          actual = {path.name for path in Path("dist").iterdir() if path.is_file()}
+          if actual != expected:
+              raise SystemExit(f"unexpected distributions: {sorted(actual)}")
+          PY
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+      - name: Smoke-test wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/mcp-rig-wheel"
+          "$RUNNER_TEMP/mcp-rig-wheel/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/mcp-rig-wheel/bin/mcp-rig" --help
+          "$RUNNER_TEMP/mcp-rig-wheel/bin/mcp-rig" check "$RUNNER_TEMP/mcp-rig-wheel/bin/python tests/fixtures/fixture_server.py"
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-package-distributions
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    if: ${{ github.event.release.prerelease == false }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mcp-rig
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
