@@ -35,6 +35,11 @@ mcp-rig run examples/fixture.yaml
 mcp-rig run examples/fixture.yaml --junit results.xml
 ```
 
+See the [real-world server examples](https://github.com/gorkemgul/mcp-rig/tree/main/examples) for
+pinned suites that exercise Playwright MCP, the MCP Everything reference server, and the Time
+MCP server. External examples are kept out of the main CI path and run in a separate manual and
+weekly smoke workflow.
+
 A suite names the stdio server command and the tool calls to verify:
 
 ```yaml

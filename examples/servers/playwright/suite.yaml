@@ -1,0 +1,19 @@
+server:
+  command: npx
+  args: [-y, "@playwright/mcp@0.0.82", --browser, firefox, --headless, --isolated]
+
+tests:
+  - name: navigates to a public example page
+    call: browser_navigate
+    args:
+      url: https://example.com
+    timeout_s: 90
+    expect:
+      is_error: false
+      contains: Example Domain
+
+  - name: reads the current page snapshot
+    call: browser_snapshot
+    expect:
+      is_error: false
+      contains: Example Domain

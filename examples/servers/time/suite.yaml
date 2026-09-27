@@ -1,0 +1,32 @@
+server:
+  command: uvx
+  args: ["mcp-server-time==2026.8.18"]
+
+tests:
+  - name: converts UTC noon to Tokyo time
+    call: convert_time
+    args:
+      source_timezone: UTC
+      time: "12:00"
+      target_timezone: Asia/Tokyo
+    expect:
+      is_error: false
+      contains:
+        - '"timezone": "UTC"'
+        - '"timezone": "Asia/Tokyo"'
+        - 'T21:00:00+09:00'
+        - '"time_difference": "+9.0h"'
+
+  - name: converts UTC noon to Kolkata time
+    call: convert_time
+    args:
+      source_timezone: UTC
+      time: "12:00"
+      target_timezone: Asia/Kolkata
+    expect:
+      is_error: false
+      contains:
+        - '"timezone": "UTC"'
+        - '"timezone": "Asia/Kolkata"'
+        - 'T17:30:00+05:30'
+        - '"time_difference": "+5.5h"'
