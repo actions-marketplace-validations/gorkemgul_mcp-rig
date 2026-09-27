@@ -10,13 +10,14 @@ tool suites in YAML.
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
+source .venv/bin/activate
 ```
 
 ## Run a suite
 
 ```bash
-.venv/bin/mcp-rig run examples/fixture.yaml
-.venv/bin/mcp-rig run examples/fixture.yaml --junit results.xml
+mcp-rig run examples/fixture.yaml
+mcp-rig run examples/fixture.yaml --junit results.xml
 ```
 
 Each case expects a successful tool call unless it declares
@@ -54,7 +55,7 @@ tool behavior.
 Run protocol checks and inspect tool-definition quality without writing YAML:
 
 ```bash
-.venv/bin/mcp-rig check "python path/to/server.py"
+mcp-rig check "python path/to/server.py"
 ```
 
 The command verifies that the server lists tools, returns an MCP tool error for
@@ -66,7 +67,7 @@ other.
 Lint warnings are advisory by default. Use `--strict` to make them fail CI:
 
 ```bash
-.venv/bin/mcp-rig check "python path/to/server.py" --strict
+mcp-rig check "python path/to/server.py" --strict
 ```
 
 `--probe-invalid-args` calls every tool that declares required parameters with
@@ -75,14 +76,14 @@ only with development or test servers: a server that does not enforce its
 declared schema could execute the tool body.
 
 ```bash
-.venv/bin/mcp-rig check "python path/to/server.py" --probe-invalid-args
+mcp-rig check "python path/to/server.py" --probe-invalid-args
 ```
 
 Server stderr is hidden by default. Add `--server-logs` while diagnosing the
 server:
 
 ```bash
-.venv/bin/mcp-rig check "python path/to/server.py" --server-logs
+mcp-rig check "python path/to/server.py" --server-logs
 ```
 
 For `check`, exit code `0` means all protocol checks passed, `1` means a
@@ -91,3 +92,6 @@ server process, connection, or teardown failed.
 
 This release supports local stdio servers and tools only. PyPI publication
 arrives in a later increment.
+
+Repository CI tests Python 3.11 through 3.13 and validates both wheel and
+source distributions without publishing them.
