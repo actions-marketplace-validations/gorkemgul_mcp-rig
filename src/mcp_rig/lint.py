@@ -55,7 +55,7 @@ def _lint_schema(tool: ToolInfo) -> list[LintWarning]:
 
     warnings: list[LintWarning] = []
     for name, prop in tool.input_schema.get("properties", {}).items():
-        description = prop.get("description")
+        description = prop.get("description") if isinstance(prop, dict) else None
         if not isinstance(description, str) or not description.strip():
             warnings.append(
                 LintWarning(

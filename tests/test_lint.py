@@ -90,6 +90,19 @@ def test_described_parameters_have_no_schema_warnings():
     assert lint_tools([tool("weather", schema=GOOD_SCHEMA)]) == []
 
 
+@pytest.mark.parametrize("subschema", [True, False])
+def test_boolean_property_schema_is_valid_and_reported_as_undocumented(subschema):
+    schema = {
+        "type": "object",
+        "properties": {"value": subschema},
+    }
+
+    warnings = lint_tools([tool("boolean_property", schema=schema)])
+
+    assert codes(warnings) == [("boolean_property", "param-no-description")]
+    assert warnings[0].message == "parameter 'value' has no description"
+
+
 def test_similar_descriptions_are_reported_once():
     warnings = lint_tools(
         [

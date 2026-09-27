@@ -1,8 +1,13 @@
 import shlex
 import xml.etree.ElementTree as ET
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+import pytest
+
+import mcp_rig.cli as cli_module
 from mcp_rig.cli import main
+from mcp_rig.client import CallOutcome, ToolInfo
 
 
 def write_suite(tmp_path, fixture_spec, cases):
@@ -330,3 +335,41 @@ def test_check_server_logs_are_hidden_by_default_and_visible_with_flag(
 
     assert main(["check", command, "--server-logs"]) == 0
     assert "mcp-rig-check-server-log" in capfd.readouterr().err
+
+
+@pytest.mark.parametrize(("strict", "expected_code"), [(False, 0), (True, 1)])
+def test_check_handles_valid_boolean_property_schema(
+    monkeypatch,
+    capsys,
+    strict,
+    expected_code,
+):
+    class BooleanSchemaProbe:
+        async def list_tools(self):
+            return [
+                ToolInfo(
+                    "boolean_property",
+                    "Return a value accepted by the schema.",
+                    {"type": "object", "properties": {"value": True}},
+                )
+            ]
+
+        async def call(self, name, args=None, timeout_s=30.0):
+            return CallOutcome(True, "unknown tool", None, 1.0)
+
+    @asynccontextmanager
+    async def fake_connect(spec, show_server_logs=False):
+        yield BooleanSchemaProbe()
+
+    monkeypatch.setattr(cli_module, "connect", fake_connect)
+    argv = ["check", "fixture-server"]
+    if strict:
+        argv.append("--strict")
+
+    code = main(argv)
+
+    captured = capsys.readouterr()
+    assert code == expected_code
+    assert "3/3 checks passed, 1 lint warning" in captured.out
+    assert "boolean_property [param-no-description]" in captured.out
+    assert "error:" not in captured.err
