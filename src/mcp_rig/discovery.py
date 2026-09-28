@@ -29,21 +29,21 @@ def discover_suites(targets: Sequence[str | Path]) -> DiscoveryResult:
 
     for raw_target in targets:
         target = Path(raw_target)
-        if target.is_file():
-            if target.suffix not in SUITE_SUFFIXES:
-                errors.append(_error(target, ValueError("must be a .yaml or .yml file")))
-            else:
-                paths.add(target.resolve())
-            continue
+        try:
+            if target.is_file():
+                if target.suffix not in SUITE_SUFFIXES:
+                    errors.append(_error(target, ValueError("must be a .yaml or .yml file")))
+                else:
+                    paths.add(target.resolve())
+                continue
 
-        if target.is_dir():
-            found_in_target = False
-            error_count_before = len(errors)
+            if target.is_dir():
+                found_in_target = False
+                error_count_before = len(errors)
 
-            def onerror(exc: OSError, error_target: Path = target) -> None:
-                errors.append(_error(error_target, exc))
+                def onerror(exc: OSError, error_target: Path = target) -> None:
+                    errors.append(_error(error_target, exc))
 
-            try:
                 for root, directories, files in os.walk(
                     target,
                     onerror=onerror,
@@ -55,22 +55,21 @@ def discover_suites(targets: Sequence[str | Path]) -> DiscoveryResult:
                         if candidate.suffix in SUITE_SUFFIXES:
                             found_in_target = True
                             paths.add(candidate.resolve())
-            except OSError as exc:
-                errors.append(_error(target, exc))
-
-            if not found_in_target and len(errors) == error_count_before:
-                errors.append(
-                    _error(
-                        target,
-                        ValueError("contains no .yaml or .yml suite files"),
+                if not found_in_target and len(errors) == error_count_before:
+                    errors.append(
+                        _error(
+                            target,
+                            ValueError("contains no .yaml or .yml suite files"),
+                        )
                     )
-                )
-            continue
+                continue
 
-        if not target.exists():
-            errors.append(_error(target, FileNotFoundError(f"{target}: does not exist")))
-        else:
-            errors.append(_error(target, ValueError("must be a .yaml or .yml file or a directory")))
+            if not target.exists():
+                errors.append(_error(target, FileNotFoundError(f"{target}: does not exist")))
+            else:
+                errors.append(_error(target, ValueError("must be a .yaml or .yml file or a directory")))
+        except OSError as exc:
+            errors.append(_error(target, exc))
 
     return DiscoveryResult(paths=sorted(paths, key=str), errors=errors)
 

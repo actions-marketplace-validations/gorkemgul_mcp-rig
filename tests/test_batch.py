@@ -161,6 +161,33 @@ async def test_batch_continues_after_parse_and_execution_errors(monkeypatch, tmp
 
 
 @pytest.mark.anyio
+async def test_batch_continues_after_unexpected_suite_load_error(monkeypatch, tmp_path):
+    invalid = tmp_path / "invalid.yaml"
+    passes = tmp_path / "passes.yaml"
+
+    def fake_load(path):
+        if path == invalid:
+            raise TypeError("malformed expectation key")
+        return suite_at(path)
+
+    async def fake_run(suite, show_server_logs=False):
+        return passing_result()
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", fake_load)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(DiscoveryResult([invalid, passes], []))
+
+    assert result.suites[0].error == BatchFailure(
+        BatchFailureCategory.CONFIGURATION,
+        "TypeError",
+        "malformed expectation key",
+    )
+    assert result.suites[1].result is not None
+    assert (result.suite_passed, result.suite_errors) == (1, 1)
+
+
+@pytest.mark.anyio
 async def test_batch_propagates_keyboard_interrupt(monkeypatch, tmp_path):
     path = tmp_path / "suite.yaml"
 

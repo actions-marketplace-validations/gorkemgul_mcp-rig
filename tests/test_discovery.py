@@ -83,3 +83,26 @@ def test_keeps_other_targets_when_directory_traversal_fails(tmp_path, monkeypatc
     assert result.errors[0].target == blocked
     assert result.errors[0].exception_type == "PermissionError"
     assert "permission denied" in result.errors[0].message
+
+
+def test_keeps_other_targets_when_target_metadata_access_fails(tmp_path, monkeypatch):
+    blocked = tmp_path / "blocked.yaml"
+    valid = tmp_path / "valid.yaml"
+    blocked.write_text("suite", encoding="utf-8")
+    valid.write_text("suite", encoding="utf-8")
+    real_is_file = Path.is_file
+
+    def failing_is_file(path):
+        if path == blocked:
+            raise PermissionError(13, "permission denied", str(blocked))
+        return real_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", failing_is_file)
+
+    result = discover_suites([blocked, valid])
+
+    assert result.paths == [valid.resolve()]
+    assert len(result.errors) == 1
+    assert result.errors[0].target == blocked
+    assert result.errors[0].exception_type == "PermissionError"
+    assert "permission denied" in result.errors[0].message

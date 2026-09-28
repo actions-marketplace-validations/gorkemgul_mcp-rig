@@ -8,7 +8,7 @@ from pathlib import Path
 
 from mcp_rig.discovery import DiscoveryError, DiscoveryResult
 from mcp_rig.runner import CaseStatus, SuiteResult, run_suite
-from mcp_rig.spec import SpecError, load_suite
+from mcp_rig.spec import load_suite
 
 
 class BatchFailureCategory(StrEnum):
@@ -94,7 +94,7 @@ async def run_batch(
     for path in discovery.paths:
         try:
             suite = load_suite(path)
-        except SpecError as exc:
+        except Exception as exc:
             suites.append(
                 SuiteRun(
                     path,
