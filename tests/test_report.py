@@ -110,6 +110,78 @@ def test_render_batch_preserves_single_successful_suite_output():
     batch = BatchResult([SuiteRun(Path("suite.yaml"), result=result)], [])
 
     assert render_batch(batch) == render_suite("suite.yaml", result)
+    assert "Selection:" not in render_batch(batch)
+
+
+def test_render_filtered_single_suite_places_selection_before_summary():
+    result = SuiteResult(
+        [
+            completed_result("one", CaseStatus.PASSED, [], 1.0),
+            completed_result("two", CaseStatus.PASSED, [], 1.0),
+            completed_result("three", CaseStatus.PASSED, [], 1.0),
+        ]
+    )
+    batch = BatchResult(
+        [SuiteRun(Path("suite.yaml"), result=result)],
+        [],
+        selection_active=True,
+        selected_cases=3,
+        filtered_out_cases=7,
+    )
+
+    text = render_batch(batch)
+
+    assert text.endswith(
+        "Selection: 3 selected, 7 filtered out\n"
+        "3 passed, 0 failed, 0 errors, 0 skipped"
+    )
+
+
+def test_render_filtered_multi_suite_places_selection_before_aggregate_summary():
+    first = SuiteResult([completed_result("one", CaseStatus.PASSED, [], 1.0)])
+    second = SuiteResult(
+        [
+            completed_result("two", CaseStatus.PASSED, [], 1.0),
+            completed_result("three", CaseStatus.PASSED, [], 1.0),
+        ]
+    )
+    batch = BatchResult(
+        [
+            SuiteRun(Path("a.yaml"), result=first),
+            SuiteRun(Path("b.yaml"), result=second),
+        ],
+        [],
+        selection_active=True,
+        selected_cases=3,
+        filtered_out_cases=7,
+    )
+
+    text = render_batch(batch)
+
+    assert text.endswith(
+        "Selection: 3 selected, 7 filtered out\n"
+        "Suites: 2 passed, 0 failed, 0 errors\n"
+        "Cases: 3 passed, 0 failed, 0 errors, 0 skipped"
+    )
+
+
+def test_render_zero_selected_batch_has_selection_without_fake_suite_heading():
+    batch = BatchResult(
+        [],
+        [],
+        selection_active=True,
+        selected_cases=0,
+        filtered_out_cases=4,
+    )
+
+    text = render_batch(batch)
+
+    assert text == (
+        "Selection: 0 selected, 4 filtered out\n"
+        "Suites: 0 passed, 0 failed, 0 errors\n"
+        "Cases: 0 passed, 0 failed, 0 errors, 0 skipped"
+    )
+    assert "MCP Rig —" not in text
 
 
 def test_render_batch_reports_each_suite_then_literal_aggregate_counts():

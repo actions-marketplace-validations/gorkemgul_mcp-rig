@@ -70,14 +70,21 @@ def render_batch(result: BatchResult, color: bool = False) -> str:
         and result.suites[0].result is not None
     ):
         item = result.suites[0]
-        return render_suite(str(item.path), item.result, color=color)
+        rendered = render_suite(str(item.path), item.result, color=color)
+        if not result.selection_active:
+            return rendered
+        body, summary = rendered.rsplit("\n", maxsplit=1)
+        return "\n".join([body, _render_selection(result), summary])
 
     sections = [
         render_suite(str(item.path), item.result, color=color)
         for item in result.suites
         if item.result is not None
     ]
-    summary = "\n".join(
+    summary_lines = []
+    if result.selection_active:
+        summary_lines.append(_render_selection(result))
+    summary_lines.extend(
         [
             f"Suites: {result.suite_passed} passed, {result.suite_failed} failed, "
             f"{result.suite_errors} {_label(result.suite_errors, 'error')}",
@@ -86,8 +93,16 @@ def render_batch(result: BatchResult, color: bool = False) -> str:
             f"{result.case_skipped} skipped",
         ]
     )
+    summary = "\n".join(summary_lines)
     sections.append(summary)
     return "\n\n".join(sections)
+
+
+def _render_selection(result: BatchResult) -> str:
+    return (
+        f"Selection: {result.selected_cases} selected, "
+        f"{result.filtered_out_cases} filtered out"
+    )
 
 
 def _label(count: int, singular: str) -> str:
