@@ -10,11 +10,15 @@ from mcp_rig.cli import main
 from mcp_rig.client import CallOutcome, ToolInfo
 
 
-def write_suite(tmp_path, fixture_spec, cases, name="suite.yaml"):
+def write_suite(tmp_path, fixture_spec, cases, name="suite.yaml", tags=None):
     command = shlex.join([fixture_spec.command, *fixture_spec.args])
     path = tmp_path / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"server: {command!r}\ntests:\n{cases}", encoding="utf-8")
+    suite_tags = f"tags: [{', '.join(tags)}]\n" if tags else ""
+    path.write_text(
+        f"server: {command!r}\n{suite_tags}tests:\n{cases}",
+        encoding="utf-8",
+    )
     return path
 
 
@@ -35,6 +39,236 @@ FAILING = PASSING + """\
     args: {text: hi}
     expect: {contains: bye}
 """
+
+FILTER_CASES = """\
+  - name: opens homepage
+    tags: [smoke]
+    call: echo
+    args: {text: homepage}
+    expect: {contains: homepage}
+  - name: takes screenshot
+    tags: [slow]
+    call: echo
+    args: {text: screenshot}
+    expect: {contains: screenshot}
+  - name: opens profile
+    tags: [smoke, flaky]
+    call: echo
+    args: {text: profile}
+    expect: {contains: profile}
+"""
+
+
+def test_run_filters_by_exact_case_name(tmp_path, fixture_spec, capsys):
+    path = write_suite(tmp_path, fixture_spec, FILTER_CASES)
+
+    assert main(["run", str(path), "--case", "opens homepage"]) == 0
+    captured = capsys.readouterr()
+    assert "✓ opens homepage" in captured.out
+    assert "takes screenshot" not in captured.out
+    assert "opens profile" not in captured.out
+    assert "Selection: 1 selected, 2 filtered out" in captured.out
+
+
+def test_run_case_globs_and_repeated_patterns_use_or(tmp_path, fixture_spec, capsys):
+    path = write_suite(tmp_path, fixture_spec, FILTER_CASES)
+
+    assert main(
+        [
+            "run",
+            str(path),
+            "--case",
+            "opens*",
+            "--case",
+            "takes screenshot",
+        ]
+    ) == 0
+    captured = capsys.readouterr()
+    assert "✓ opens homepage" in captured.out
+    assert "✓ takes screenshot" in captured.out
+    assert "✓ opens profile" in captured.out
+    assert "Selection: 3 selected, 0 filtered out" in captured.out
+
+
+def test_run_repeated_tags_require_all_and_inherit_suite_tags(
+    tmp_path, fixture_spec, capsys
+):
+    path = write_suite(
+        tmp_path,
+        fixture_spec,
+        FILTER_CASES,
+        tags=["playwright"],
+    )
+
+    assert main(
+        ["run", str(path), "--tag", "playwright", "--tag", "smoke"]
+    ) == 0
+    captured = capsys.readouterr()
+    assert "✓ opens homepage" in captured.out
+    assert "✓ opens profile" in captured.out
+    assert "takes screenshot" not in captured.out
+    assert "Selection: 2 selected, 1 filtered out" in captured.out
+
+
+def test_run_excludes_cases_matching_any_excluded_tag(tmp_path, fixture_spec, capsys):
+    path = write_suite(tmp_path, fixture_spec, FILTER_CASES)
+
+    assert main(
+        ["run", str(path), "--exclude-tag", "slow", "--exclude-tag", "flaky"]
+    ) == 0
+    captured = capsys.readouterr()
+    assert "✓ opens homepage" in captured.out
+    assert "takes screenshot" not in captured.out
+    assert "opens profile" not in captured.out
+    assert "Selection: 1 selected, 2 filtered out" in captured.out
+
+
+def test_run_combines_case_include_and_exclude_filters(
+    tmp_path, fixture_spec, capsys
+):
+    path = write_suite(
+        tmp_path,
+        fixture_spec,
+        FILTER_CASES,
+        tags=["playwright"],
+    )
+
+    assert main(
+        [
+            "run",
+            str(path),
+            "--case",
+            "opens*",
+            "--tag",
+            "playwright",
+            "--tag",
+            "smoke",
+            "--exclude-tag",
+            "flaky",
+        ]
+    ) == 0
+    captured = capsys.readouterr()
+    assert "✓ opens homepage" in captured.out
+    assert "takes screenshot" not in captured.out
+    assert "opens profile" not in captured.out
+    assert "Selection: 1 selected, 2 filtered out" in captured.out
+
+
+def test_run_duplicate_cli_tags_use_set_semantics(tmp_path, fixture_spec, capsys):
+    path = write_suite(
+        tmp_path,
+        fixture_spec,
+        FILTER_CASES,
+        tags=["playwright"],
+    )
+
+    assert main(
+        ["run", str(path), "--tag", "playwright", "--tag", "playwright"]
+    ) == 0
+    captured = capsys.readouterr()
+    assert "Selection: 3 selected, 0 filtered out" in captured.out
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [("--tag", "Smoke"), ("--exclude-tag", "browser tools")],
+)
+def test_run_rejects_invalid_cli_tags_before_discovery(
+    tmp_path, capsys, flag, value
+):
+    missing = tmp_path / "missing.yaml"
+
+    with pytest.raises(SystemExit) as raised:
+        main(["run", str(missing), flag, value])
+
+    captured = capsys.readouterr()
+    assert raised.value.code == 2
+    assert "must match [a-z0-9][a-z0-9_-]*" in captured.err
+    assert "does not exist" not in captured.err
+
+
+def test_run_zero_match_writes_empty_junit_without_starting_server(
+    tmp_path, fixture_spec, fixture_server_path, capsys
+):
+    marker = tmp_path / "server-started"
+    wrapper = tmp_path / "marker_server.py"
+    wrapper.write_text(
+        "from pathlib import Path\n"
+        "import runpy\n"
+        f"Path({str(marker)!r}).write_text('started', encoding='utf-8')\n"
+        f"runpy.run_path({str(fixture_server_path)!r}, run_name='__main__')\n",
+        encoding="utf-8",
+    )
+    marker_spec = type(fixture_spec)(fixture_spec.command, [str(wrapper)])
+    path = write_suite(
+        tmp_path,
+        marker_spec,
+        FILTER_CASES,
+        tags=["playwright"],
+    )
+    report = tmp_path / "results.xml"
+
+    assert main(
+        [
+            "run",
+            str(path),
+            "--tag",
+            "smoke",
+            "--exclude-tag",
+            "smoke",
+            "--junit",
+            str(report),
+        ]
+    ) == 2
+    captured = capsys.readouterr()
+    root = ET.parse(report).getroot()
+    assert "error: filters matched no test cases" in captured.err
+    assert "Selection: 0 selected, 3 filtered out" in captured.out
+    assert root.attrib["tests"] == "0"
+    assert root.findall("testsuite") == []
+    assert marker.exists() is False
+
+
+def test_run_filters_entire_suite_without_hiding_selected_suite(
+    tmp_path, fixture_spec, capsys
+):
+    filtered = write_suite(
+        tmp_path,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: filtered case") + "    tags: [slow]\n",
+        "a-filtered.yaml",
+    )
+    selected = write_suite(
+        tmp_path,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: selected case") + "    tags: [smoke]\n",
+        "b-selected.yaml",
+    )
+
+    assert main(["run", str(filtered), str(selected), "--tag", "smoke"]) == 0
+    captured = capsys.readouterr()
+    assert "filtered case" not in captured.out
+    assert "✓ selected case" in captured.out
+    assert "Selection: 1 selected, 1 filtered out" in captured.out
+
+
+def test_run_filtered_batch_keeps_malformed_suite_visible(
+    tmp_path, fixture_spec, capsys
+):
+    invalid = tmp_path / "a-invalid.yaml"
+    invalid.write_text("server: python server.py\ntests: []\n", encoding="utf-8")
+    valid = write_suite(
+        tmp_path,
+        fixture_spec,
+        PASSING.replace("name: adds", "name: selected case") + "    tags: [smoke]\n",
+        "b-valid.yaml",
+    )
+
+    assert main(["run", str(invalid), str(valid), "--tag", "smoke"]) == 2
+    captured = capsys.readouterr()
+    assert "a-invalid.yaml" in captured.err
+    assert "✓ selected case" in captured.out
+    assert "Selection: 1 selected, 0 filtered out" in captured.out
 
 
 def test_run_passing_suite_exits_zero(tmp_path, fixture_spec, capsys):
