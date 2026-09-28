@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mcp_rig.batch import BatchResult
 from mcp_rig.checks import CheckResult
 from mcp_rig.lint import LintWarning
 from mcp_rig.runner import CaseStatus, SuiteResult
@@ -46,6 +47,51 @@ def render_suite(title: str, result: SuiteResult, color: bool = False) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def render_batch_errors(result: BatchResult) -> str:
+    lines = [
+        f"! target {error.target}: {error.exception_type}: {error.message}"
+        for error in result.discovery_errors
+    ]
+    lines.extend(
+        f"! suite {item.path} {item.error.category}: "
+        f"{item.error.exception_type}: {item.error.message}"
+        for item in result.suites
+        if item.error is not None
+    )
+    return "\n".join(lines)
+
+
+def render_batch(result: BatchResult, color: bool = False) -> str:
+    if (
+        not result.discovery_errors
+        and len(result.suites) == 1
+        and result.suites[0].result is not None
+    ):
+        item = result.suites[0]
+        return render_suite(str(item.path), item.result, color=color)
+
+    sections = [
+        render_suite(str(item.path), item.result, color=color)
+        for item in result.suites
+        if item.result is not None
+    ]
+    summary = "\n".join(
+        [
+            f"Suites: {result.suite_passed} passed, {result.suite_failed} failed, "
+            f"{result.suite_errors} {_label(result.suite_errors, 'error')}",
+            f"Cases: {result.case_passed} passed, {result.case_failed} failed, "
+            f"{result.case_errors} {_label(result.case_errors, 'error')}, "
+            f"{result.case_skipped} skipped",
+        ]
+    )
+    sections.append(summary)
+    return "\n\n".join(sections)
+
+
+def _label(count: int, singular: str) -> str:
+    return singular if count == 1 else f"{singular}s"
 
 
 def render_check(

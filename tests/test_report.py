@@ -1,7 +1,11 @@
+from pathlib import Path
+
+from mcp_rig.batch import BatchFailure, BatchFailureCategory, BatchResult, SuiteRun
 from mcp_rig.checks import CheckResult
 from mcp_rig.client import CallOutcome
+from mcp_rig.discovery import DiscoveryError
 from mcp_rig.lint import LintWarning
-from mcp_rig.report import render_check, render_suite
+from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 from mcp_rig.runner import CaseResult, CaseStatus, ErrorCategory, InfrastructureError, SuiteResult
 
 
@@ -99,6 +103,124 @@ def test_render_suite_teardown_error_without_rewriting_completed_case():
     assert "✓ completed (2 ms)" in text
     assert "! suite teardown: RuntimeError: close failed" in text
     assert "1 passed, 0 failed, 1 error, 0 skipped" in text
+
+
+def test_render_batch_preserves_single_successful_suite_output():
+    result = SuiteResult([completed_result("passes", CaseStatus.PASSED, [], 2.0)])
+    batch = BatchResult([SuiteRun(Path("suite.yaml"), result=result)], [])
+
+    assert render_batch(batch) == render_suite("suite.yaml", result)
+
+
+def test_render_batch_reports_each_suite_then_literal_aggregate_counts():
+    passed = SuiteResult(
+        [
+            completed_result("one", CaseStatus.PASSED, [], 1.0),
+            completed_result("two", CaseStatus.PASSED, [], 2.0),
+        ]
+    )
+    failed = SuiteResult(
+        [
+            completed_result("three", CaseStatus.PASSED, [], 3.0),
+            completed_result("four", CaseStatus.FAILED, ["wrong"], 4.0),
+        ]
+    )
+    errored = SuiteResult(
+        [
+            CaseResult(
+                name="five",
+                status=CaseStatus.ERROR,
+                elapsed_ms=5.0,
+                error=InfrastructureError(
+                    ErrorCategory.TRANSPORT,
+                    "BrokenPipeError",
+                    "connection lost",
+                ),
+            ),
+            CaseResult(
+                name="six",
+                status=CaseStatus.SKIPPED,
+                skip_reason="session unavailable",
+            ),
+        ]
+    )
+    batch = BatchResult(
+        [
+            SuiteRun(Path("a.yaml"), result=passed),
+            SuiteRun(Path("b.yaml"), result=failed),
+            SuiteRun(Path("c.yaml"), result=errored),
+            SuiteRun(
+                Path("d.yaml"),
+                error=BatchFailure(
+                    BatchFailureCategory.CONFIGURATION,
+                    "SpecError",
+                    "invalid suite",
+                ),
+            ),
+        ],
+        [],
+    )
+
+    text = render_batch(batch)
+
+    assert text.index("MCP Rig — a.yaml") < text.index("MCP Rig — b.yaml")
+    assert text.index("MCP Rig — b.yaml") < text.index("MCP Rig — c.yaml")
+    assert text.endswith(
+        "Suites: 1 passed, 1 failed, 2 errors\n"
+        "Cases: 3 passed, 1 failed, 1 error, 1 skipped"
+    )
+
+
+def test_render_batch_errors_identifies_target_and_suite_sources():
+    batch = BatchResult(
+        [
+            SuiteRun(
+                Path("invalid.yaml"),
+                error=BatchFailure(
+                    BatchFailureCategory.CONFIGURATION,
+                    "SpecError",
+                    "invalid suite",
+                ),
+            ),
+            SuiteRun(
+                Path("crashed.yaml"),
+                error=BatchFailure(
+                    BatchFailureCategory.EXECUTION,
+                    "RuntimeError",
+                    "runner crashed",
+                ),
+            ),
+        ],
+        [DiscoveryError(Path("missing.yaml"), "FileNotFoundError", "missing")],
+    )
+
+    assert render_batch_errors(batch) == "\n".join(
+        [
+            "! target missing.yaml: FileNotFoundError: missing",
+            "! suite invalid.yaml configuration: SpecError: invalid suite",
+            "! suite crashed.yaml execution: RuntimeError: runner crashed",
+        ]
+    )
+
+
+def test_render_batch_colors_only_status_marks():
+    passed = SuiteResult([completed_result("passes", CaseStatus.PASSED, [], 1.0)])
+    failed = SuiteResult(
+        [completed_result("fails", CaseStatus.FAILED, ["wrong"], 1.0)]
+    )
+    batch = BatchResult(
+        [
+            SuiteRun(Path("a.yaml"), result=passed),
+            SuiteRun(Path("b.yaml"), result=failed),
+        ],
+        [],
+    )
+
+    text = render_batch(batch, color=True)
+
+    assert "\033[32m✓\033[0m passes" in text
+    assert "\033[31m✗\033[0m fails" in text
+    assert "\033[" not in text.split("Suites:", maxsplit=1)[1]
 
 
 def test_render_check_plain_text_with_failure_and_lint_warning():
