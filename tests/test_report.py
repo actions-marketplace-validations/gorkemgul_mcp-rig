@@ -7,6 +7,7 @@ from mcp_rig.discovery import DiscoveryError
 from mcp_rig.lint import LintWarning
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 from mcp_rig.runner import CaseResult, CaseStatus, ErrorCategory, InfrastructureError, SuiteResult
+from mcp_rig.snapshots import SnapshotChanges
 
 
 def completed_result(name, status, failures, elapsed_ms):
@@ -163,6 +164,56 @@ def test_render_filtered_multi_suite_places_selection_before_aggregate_summary()
         "Suites: 2 passed, 0 failed, 0 errors\n"
         "Cases: 3 passed, 0 failed, 0 errors, 0 skipped"
     )
+
+
+def test_snapshot_update_counts_precede_existing_single_suite_summary():
+    result = SuiteResult([completed_result("passes", CaseStatus.PASSED, [], 2.0)])
+    batch = BatchResult(
+        [SuiteRun(Path("suite.yaml"), result=result)],
+        [],
+        snapshot_update_active=True,
+        snapshot_changes=SnapshotChanges(added=1, updated=2, unchanged=3, removed=4),
+    )
+
+    rendered = render_batch(batch)
+
+    assert rendered.endswith(
+        "Snapshots: 1 added, 2 updated, 3 unchanged, 4 removed\n"
+        "1 passed, 0 failed, 0 errors, 0 skipped"
+    )
+
+
+def test_selection_then_snapshot_counts_precede_aggregate_summary():
+    result = SuiteResult([completed_result("passes", CaseStatus.PASSED, [], 2.0)])
+    batch = BatchResult(
+        [
+            SuiteRun(Path("a.yaml"), result=result),
+            SuiteRun(Path("b.yaml"), result=result),
+        ],
+        [],
+        selection_active=True,
+        selected_cases=2,
+        filtered_out_cases=1,
+        snapshot_update_active=True,
+        snapshot_changes=SnapshotChanges(unchanged=2),
+    )
+
+    rendered = render_batch(batch)
+
+    assert rendered.endswith(
+        "Selection: 2 selected, 1 filtered out\n"
+        "Snapshots: 0 added, 0 updated, 2 unchanged, 0 removed\n"
+        "Suites: 2 passed, 0 failed, 0 errors\n"
+        "Cases: 2 passed, 0 failed, 0 errors, 0 skipped"
+    )
+
+
+def test_normal_batch_without_snapshot_updates_is_byte_compatible():
+    result = SuiteResult([completed_result("passes", CaseStatus.PASSED, [], 2.0)])
+    batch = BatchResult([SuiteRun(Path("suite.yaml"), result=result)], [])
+
+    assert render_batch(batch) == render_suite("suite.yaml", result)
+    assert "Snapshots:" not in render_batch(batch)
 
 
 def test_render_zero_selected_batch_has_selection_without_fake_suite_heading():

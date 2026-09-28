@@ -11,6 +11,7 @@ from mcp_types import REQUEST_TIMEOUT
 
 from mcp_rig.assertions import check
 from mcp_rig.client import CallOutcome, Probe, connect
+from mcp_rig.snapshots import SnapshotSession
 from mcp_rig.spec import Case, Suite
 
 
@@ -72,7 +73,11 @@ class SuiteResult:
         return bool(self.results) and self.passed == len(self.results) and self.suite_error is None
 
 
-async def run_suite(suite: Suite, show_server_logs: bool = False) -> SuiteResult:
+async def run_suite(
+    suite: Suite,
+    show_server_logs: bool = False,
+    snapshots: SnapshotSession | None = None,
+) -> SuiteResult:
     results: list[CaseResult] = []
     connected = False
     body_failed = False
@@ -81,7 +86,7 @@ async def run_suite(suite: Suite, show_server_logs: bool = False) -> SuiteResult
             connected = True
             try:
                 for index, case in enumerate(suite.cases):
-                    result = await _run_case(probe, case)
+                    result = await _run_case(probe, case, snapshots=snapshots)
                     results.append(result)
                     if result.status is CaseStatus.ERROR:
                         reason = f"not run after infrastructure error in '{case.name}'"
@@ -101,7 +106,11 @@ async def run_suite(suite: Suite, show_server_logs: bool = False) -> SuiteResult
     return SuiteResult(results)
 
 
-async def _run_case(probe: Probe, case: Case) -> CaseResult:
+async def _run_case(
+    probe: Probe,
+    case: Case,
+    snapshots: SnapshotSession | None = None,
+) -> CaseResult:
     started = time.perf_counter()
     try:
         outcome = await probe.call(case.call, case.args, timeout_s=case.timeout_s)
@@ -113,6 +122,8 @@ async def _run_case(probe: Probe, case: Case) -> CaseResult:
             error=_normalize_error(exc, ErrorCategory.TRANSPORT),
         )
     failures = check(case.expect, outcome)
+    if snapshots is not None and case.expect.get("snapshot") is True:
+        failures.extend(snapshots.evaluate(case.name, outcome))
     return CaseResult(
         name=case.name,
         status=CaseStatus.FAILED if failures else CaseStatus.PASSED,

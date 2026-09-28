@@ -71,10 +71,15 @@ def render_batch(result: BatchResult, color: bool = False) -> str:
     ):
         item = result.suites[0]
         rendered = render_suite(str(item.path), item.result, color=color)
-        if not result.selection_active:
+        if not result.selection_active and not result.snapshot_update_active:
             return rendered
         body, summary = rendered.rsplit("\n", maxsplit=1)
-        return "\n".join([body, _render_selection(result), summary])
+        detail_lines = []
+        if result.selection_active:
+            detail_lines.append(_render_selection(result))
+        if result.snapshot_update_active:
+            detail_lines.append(_render_snapshots(result))
+        return "\n".join([body, *detail_lines, summary])
 
     sections = [
         render_suite(str(item.path), item.result, color=color)
@@ -84,6 +89,8 @@ def render_batch(result: BatchResult, color: bool = False) -> str:
     summary_lines = []
     if result.selection_active:
         summary_lines.append(_render_selection(result))
+    if result.snapshot_update_active:
+        summary_lines.append(_render_snapshots(result))
     summary_lines.extend(
         [
             f"Suites: {result.suite_passed} passed, {result.suite_failed} failed, "
@@ -102,6 +109,14 @@ def _render_selection(result: BatchResult) -> str:
     return (
         f"Selection: {result.selected_cases} selected, "
         f"{result.filtered_out_cases} filtered out"
+    )
+
+
+def _render_snapshots(result: BatchResult) -> str:
+    changes = result.snapshot_changes
+    return (
+        f"Snapshots: {changes.added} added, {changes.updated} updated, "
+        f"{changes.unchanged} unchanged, {changes.removed} removed"
     )
 
 

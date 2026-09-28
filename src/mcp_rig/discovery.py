@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from mcp_rig.snapshots import is_snapshot_sidecar
+
 SUITE_SUFFIXES = {".yaml", ".yml"}
 
 
@@ -31,7 +33,9 @@ def discover_suites(targets: Sequence[str | Path]) -> DiscoveryResult:
         target = Path(raw_target)
         try:
             if target.is_file():
-                if target.suffix not in SUITE_SUFFIXES:
+                if is_snapshot_sidecar(target):
+                    errors.append(_error(target, ValueError("snapshot sidecar is not a suite")))
+                elif target.suffix not in SUITE_SUFFIXES:
                     errors.append(_error(target, ValueError("must be a .yaml or .yml file")))
                 else:
                     paths.add(target.resolve())
@@ -52,7 +56,7 @@ def discover_suites(targets: Sequence[str | Path]) -> DiscoveryResult:
                     directories.sort()
                     for filename in sorted(files):
                         candidate = Path(root) / filename
-                        if candidate.suffix in SUITE_SUFFIXES:
+                        if candidate.suffix in SUITE_SUFFIXES and not is_snapshot_sidecar(candidate):
                             found_in_target = True
                             paths.add(candidate.resolve())
                 if not found_in_target and len(errors) == error_count_before:

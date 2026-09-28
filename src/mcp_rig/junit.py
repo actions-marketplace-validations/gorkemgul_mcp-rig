@@ -5,7 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from mcp_rig.batch import BatchResult
+from mcp_rig.batch import BatchFailure, BatchResult
 from mcp_rig.runner import CaseStatus, InfrastructureError, SuiteResult
 
 
@@ -28,7 +28,9 @@ def write_batch_junit(path: str | Path, result: BatchResult) -> None:
         )
     for item in result.suites:
         if item.result is not None:
-            _append_suite(root, str(item.path), item.result)
+            suite = _append_suite(root, str(item.path), item.result)
+            if item.error is not None:
+                _append_batch_error(suite, item.error)
         elif item.error is not None:
             _append_synthetic_error(
                 root,
@@ -46,7 +48,7 @@ def write_batch_junit(path: str | Path, result: BatchResult) -> None:
     ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 
 
-def _append_suite(root: ET.Element, suite_name: str, result: SuiteResult) -> None:
+def _append_suite(root: ET.Element, suite_name: str, result: SuiteResult) -> ET.Element:
     suite = ET.SubElement(
         root,
         "testsuite",
@@ -84,6 +86,26 @@ def _append_suite(root: ET.Element, suite_name: str, result: SuiteResult) -> Non
             time="0.000",
         )
         _add_error(case, result.suite_error)
+    return suite
+
+
+def _append_batch_error(suite: ET.Element, error: BatchFailure) -> None:
+    suite.set("tests", str(int(suite.attrib["tests"]) + 1))
+    suite.set("errors", str(int(suite.attrib["errors"]) + 1))
+    case = ET.SubElement(
+        suite,
+        "testcase",
+        classname=suite.attrib["name"],
+        name=f"[suite {error.category}]",
+        time="0.000",
+    )
+    element = ET.SubElement(
+        case,
+        "error",
+        type=f"{error.category}.{error.exception_type}",
+        message=error.message,
+    )
+    element.text = error.message
 
 
 def _append_synthetic_error(

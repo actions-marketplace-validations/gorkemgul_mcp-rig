@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+import yaml
 
 import mcp_rig.cli as cli_module
 from mcp_rig.cli import main
@@ -57,6 +58,25 @@ FILTER_CASES = """\
     args: {text: profile}
     expect: {contains: profile}
 """
+
+
+def snapshot_cases(first: str = "first", second: str | None = None) -> str:
+    cases = f"""\
+  - name: first snapshot
+    tags: [smoke]
+    call: echo
+    args: {{text: {first}}}
+    expect: {{snapshot: true}}
+"""
+    if second is not None:
+        cases += f"""\
+  - name: second snapshot
+    tags: [slow]
+    call: echo
+    args: {{text: {second}}}
+    expect: {{snapshot: true}}
+"""
+    return cases
 
 
 def test_run_filters_by_exact_case_name(tmp_path, fixture_spec, capsys):
@@ -167,6 +187,199 @@ def test_run_duplicate_cli_tags_use_set_semantics(tmp_path, fixture_spec, capsys
     ) == 0
     captured = capsys.readouterr()
     assert "Selection: 3 selected, 0 filtered out" in captured.out
+
+
+def test_snapshot_create_verify_and_mismatch_workflow(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    suite = write_suite(tmp_path, fixture_spec, snapshot_cases())
+    sidecar = tmp_path / "suite.snap.yaml"
+    report = tmp_path / "results.xml"
+
+    assert main(["run", str(suite)]) == 1
+    captured = capsys.readouterr()
+    assert "snapshot: missing entry for 'first snapshot'" in captured.out
+    assert sidecar.exists() is False
+
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    captured = capsys.readouterr()
+    assert "Snapshots: 1 added, 0 updated, 0 unchanged, 0 removed" in captured.out
+    assert sidecar.exists()
+
+    assert main(["run", str(suite)]) == 0
+    assert "✓ first snapshot" in capsys.readouterr().out
+    before_mismatch = sidecar.read_bytes()
+    suite.write_text(
+        suite.read_text(encoding="utf-8").replace("text: first", "text: second"),
+        encoding="utf-8",
+    )
+
+    assert main(["run", str(suite), "--junit", str(report)]) == 1
+    captured = capsys.readouterr()
+    assert "snapshot: mismatch for 'first snapshot'" in captured.out
+    assert sidecar.read_bytes() == before_mismatch
+    failure = ET.parse(report).getroot().find("testsuite/testcase/failure")
+    assert failure is not None
+    assert "--- expected" in failure.text
+    assert "+++ actual" in failure.text
+
+
+def test_filtered_snapshot_update_preserves_unselected_entry(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    suite = write_suite(
+        tmp_path,
+        fixture_spec,
+        snapshot_cases("old-smoke", "old-slow"),
+    )
+    sidecar = tmp_path / "suite.snap.yaml"
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    capsys.readouterr()
+    suite.write_text(
+        suite.read_text(encoding="utf-8")
+        .replace("old-smoke", "new-smoke")
+        .replace("old-slow", "new-slow"),
+        encoding="utf-8",
+    )
+
+    assert main(
+        ["run", str(suite), "--tag", "smoke", "--update-snapshots"]
+    ) == 0
+    captured = capsys.readouterr()
+    contents = sidecar.read_text(encoding="utf-8")
+    assert "Selection: 1 selected, 1 filtered out" in captured.out
+    assert "Snapshots: 0 added, 1 updated, 0 unchanged, 0 removed" in captured.out
+    assert "new-smoke" in contents
+    assert "old-slow" in contents
+    assert "new-slow" not in contents
+
+
+def test_full_snapshot_update_prunes_stale_entry(tmp_path, fixture_spec, capsys):
+    suite = write_suite(tmp_path, fixture_spec, snapshot_cases("one", "two"))
+    sidecar = tmp_path / "suite.snap.yaml"
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    capsys.readouterr()
+    write_suite(tmp_path, fixture_spec, snapshot_cases("one"))
+
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    captured = capsys.readouterr()
+    snapshots = yaml.safe_load(sidecar.read_text(encoding="utf-8"))["snapshots"]
+    assert "Snapshots: 0 added, 0 updated, 1 unchanged, 1 removed" in captured.out
+    assert list(snapshots) == ["first snapshot"]
+
+
+def test_full_snapshot_update_deletes_sidecar_after_last_declaration_is_removed(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    suite = write_suite(tmp_path, fixture_spec, snapshot_cases())
+    sidecar = tmp_path / "suite.snap.yaml"
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    capsys.readouterr()
+    write_suite(tmp_path, fixture_spec, PASSING)
+
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    captured = capsys.readouterr()
+    assert "Snapshots: 0 added, 0 updated, 0 unchanged, 1 removed" in captured.out
+    assert sidecar.exists() is False
+
+
+def test_malformed_snapshot_exits_two_without_traceback(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    suite = write_suite(tmp_path, fixture_spec, snapshot_cases())
+    (tmp_path / "suite.snap.yaml").write_text(
+        "version: true\nsnapshots: {}\n",
+        encoding="utf-8",
+    )
+
+    assert main(["run", str(suite)]) == 2
+    captured = capsys.readouterr()
+    assert "'version' must be the integer 1" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_snapshot_write_error_exits_two_and_keeps_completed_result(
+    tmp_path,
+    fixture_spec,
+    capsys,
+    monkeypatch,
+):
+    suite = write_suite(tmp_path, fixture_spec, snapshot_cases())
+
+    def failing_replace(source, destination):
+        raise OSError("replace denied")
+
+    monkeypatch.setattr("mcp_rig.snapshots.os.replace", failing_replace)
+
+    assert main(["run", str(suite), "--update-snapshots"]) == 2
+    captured = capsys.readouterr()
+    assert "✓ first snapshot" in captured.out
+    assert "replace denied" in captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_snapshot_error_does_not_prevent_later_suite_execution(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    invalid = write_suite(
+        tmp_path,
+        fixture_spec,
+        snapshot_cases(),
+        name="a-invalid.yaml",
+    )
+    (tmp_path / "a-invalid.snap.yaml").write_text("malformed", encoding="utf-8")
+    valid = write_suite(tmp_path, fixture_spec, PASSING, name="b-valid.yaml")
+
+    assert main(["run", str(invalid), str(valid)]) == 2
+    captured = capsys.readouterr()
+    assert "a-invalid.snap.yaml" in captured.err
+    assert "✓ adds" in captured.out
+
+
+def test_invalid_utf8_snapshot_exits_two_and_later_suite_runs(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    invalid = write_suite(
+        tmp_path,
+        fixture_spec,
+        snapshot_cases(),
+        name="a-invalid.yaml",
+    )
+    (tmp_path / "a-invalid.snap.yaml").write_bytes(b"\xff\xfe")
+    valid = write_suite(tmp_path, fixture_spec, PASSING, name="b-valid.yaml")
+
+    assert main(["run", str(invalid), str(valid)]) == 2
+    captured = capsys.readouterr()
+    assert "a-invalid.snap.yaml" in captured.err
+    assert "could not read snapshot file" in captured.err
+    assert "✓ adds" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_no_snapshot_run_keeps_existing_output_without_snapshot_summary(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    suite = write_suite(tmp_path, fixture_spec, PASSING)
+
+    assert main(["run", str(suite)]) == 0
+    captured = capsys.readouterr()
+    assert "✓ adds" in captured.out
+    assert "1 passed, 0 failed, 0 errors, 0 skipped" in captured.out
+    assert "Snapshots:" not in captured.out
 
 
 @pytest.mark.parametrize(
@@ -488,6 +701,29 @@ def test_junit_path_cannot_overwrite_suite_file(tmp_path, capsys):
     assert suite_path.read_text(encoding="utf-8") == original
     assert "JUnit report path must differ from suite path" in captured.err
     assert "could not run server" not in captured.err
+
+
+@pytest.mark.parametrize("sidecar_exists", [False, True])
+def test_junit_path_cannot_overwrite_suite_snapshot_sidecar(
+    tmp_path,
+    fixture_spec,
+    capsys,
+    sidecar_exists,
+):
+    suite_path = write_suite(tmp_path, fixture_spec, PASSING)
+    sidecar = tmp_path / "suite.snap.yaml"
+    original = b"version: 1\nsnapshots: {}\n"
+    if sidecar_exists:
+        sidecar.write_bytes(original)
+
+    assert main(["run", str(suite_path), "--junit", str(sidecar)]) == 2
+    captured = capsys.readouterr()
+    if sidecar_exists:
+        assert sidecar.read_bytes() == original
+    else:
+        assert sidecar.exists() is False
+    assert "JUnit report path must differ from suite snapshot path" in captured.err
+    assert "✓ adds" not in captured.out
 
 
 def test_run_accepts_multiple_files_and_recursive_directory_targets(
