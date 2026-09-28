@@ -33,6 +33,80 @@ tests:
     assert suite.cases[0].args == {"a": 1, "b": 2}
 
 
+def test_tags_default_to_empty_immutable_sets(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+tests:
+  - name: pings
+    call: ping
+""",
+        )
+    )
+
+    assert suite.tags == frozenset()
+    assert suite.cases[0].tags == frozenset()
+
+
+def test_parses_and_deduplicates_suite_and_case_tags(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+tags: [playwright, playwright]
+tests:
+  - name: opens homepage
+    call: browser_navigate
+    tags: [smoke, browser, smoke]
+""",
+        )
+    )
+
+    assert suite.tags == frozenset({"playwright"})
+    assert suite.cases[0].tags == frozenset({"smoke", "browser"})
+
+
+@pytest.mark.parametrize(
+    ("body", "location"),
+    [
+        (
+            "server: python server.py\ntags: smoke\ntests: [{name: ping, call: ping}]",
+            "suite.yaml: 'tags'",
+        ),
+        (
+            "server: python server.py\ntags: null\ntests: [{name: ping, call: ping}]",
+            "suite.yaml: 'tags'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, tags: null}]",
+            r"tests\[0\].*'tags'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, tags: [smoke, 3]}]",
+            r"tests\[0\].*'tags'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, tags: [Smoke]}]",
+            r"tests\[0\].*'tags'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, tags: [-slow]}]",
+            r"tests\[0\].*'tags'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, tags: ['']}]",
+            r"tests\[0\].*'tags'",
+        ),
+    ],
+)
+def test_rejects_invalid_tags_with_location(tmp_path, body, location):
+    with pytest.raises(SpecError, match=location):
+        load_suite(write_suite(tmp_path, body))
+
+
 def test_loads_mapping_server_and_resolves_relative_cwd(tmp_path):
     suite = load_suite(
         write_suite(

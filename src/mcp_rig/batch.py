@@ -8,6 +8,7 @@ from pathlib import Path
 
 from mcp_rig.discovery import DiscoveryError, DiscoveryResult
 from mcp_rig.runner import CaseStatus, SuiteResult, run_suite
+from mcp_rig.selection import SelectionFilter, select_suite
 from mcp_rig.spec import load_suite
 
 
@@ -34,6 +35,9 @@ class SuiteRun:
 class BatchResult:
     suites: list[SuiteRun]
     discovery_errors: list[DiscoveryError]
+    selection_active: bool = False
+    selected_cases: int = 0
+    filtered_out_cases: int = 0
 
     @property
     def suite_passed(self) -> int:
@@ -89,8 +93,12 @@ class BatchResult:
 async def run_batch(
     discovery: DiscoveryResult,
     show_server_logs: bool = False,
+    selection: SelectionFilter | None = None,
 ) -> BatchResult:
+    selection = selection or SelectionFilter()
     suites: list[SuiteRun] = []
+    selected_cases = 0
+    filtered_out_cases = 0
     for path in discovery.paths:
         try:
             suite = load_suite(path)
@@ -103,8 +111,17 @@ async def run_batch(
             )
             continue
 
+        selected = select_suite(suite, selection)
+        selected_cases += selected.selected
+        filtered_out_cases += selected.filtered_out
+        if not selected.suite.cases:
+            continue
+
         try:
-            result = await run_suite(suite, show_server_logs=show_server_logs)
+            result = await run_suite(
+                selected.suite,
+                show_server_logs=show_server_logs,
+            )
         except Exception as exc:
             suites.append(
                 SuiteRun(
@@ -115,7 +132,13 @@ async def run_batch(
             continue
         suites.append(SuiteRun(path, result=result))
 
-    return BatchResult(suites=suites, discovery_errors=discovery.errors)
+    return BatchResult(
+        suites=suites,
+        discovery_errors=discovery.errors,
+        selection_active=selection.active,
+        selected_cases=selected_cases,
+        filtered_out_cases=filtered_out_cases,
+    )
 
 
 def _failure(category: BatchFailureCategory, exc: Exception) -> BatchFailure:

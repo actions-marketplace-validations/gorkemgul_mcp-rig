@@ -15,6 +15,7 @@ from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
 from mcp_rig.lint import LintWarning, lint_tools
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
+from mcp_rig.selection import SelectionFilter, validate_tag
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -43,6 +44,32 @@ def main(argv: list[str] | None = None) -> int:
         "--junit",
         metavar="PATH",
         help="also write a JUnit XML report",
+    )
+    run_parser.add_argument(
+        "--case",
+        dest="case_patterns",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="run cases whose names match this shell-style pattern; repeat for OR",
+    )
+    run_parser.add_argument(
+        "--tag",
+        dest="required_tags",
+        action="append",
+        default=[],
+        type=_tag_arg,
+        metavar="TAG",
+        help="require this effective tag; repeat to require every tag",
+    )
+    run_parser.add_argument(
+        "--exclude-tag",
+        dest="excluded_tags",
+        action="append",
+        default=[],
+        type=_tag_arg,
+        metavar="TAG",
+        help="exclude cases carrying this effective tag; repeat for OR",
     )
     check_parser = commands.add_parser(
         "check",
@@ -76,12 +103,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_run(args: argparse.Namespace, color: bool) -> int:
+    selection = SelectionFilter(
+        case_patterns=tuple(args.case_patterns),
+        required_tags=frozenset(args.required_tags),
+        excluded_tags=frozenset(args.excluded_tags),
+    )
     discovery = discover_suites(args.targets)
     if args.junit and any(_same_path(path, args.junit) for path in discovery.paths):
         print("error: JUnit report path must differ from suite path", file=sys.stderr)
         return EXIT_USAGE
 
-    result = anyio.run(run_batch, discovery, args.server_logs)
+    result = anyio.run(run_batch, discovery, args.server_logs, selection)
     errors = render_batch_errors(result)
     if errors:
         for line in errors.splitlines():
@@ -94,6 +126,9 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
         except OSError as exc:
             print(f"error: {args.junit}: could not write JUnit report: {_describe(exc)}", file=sys.stderr)
             return EXIT_USAGE
+    if result.selection_active and result.selected_cases == 0:
+        print("error: filters matched no test cases", file=sys.stderr)
+        return EXIT_USAGE
     if result.has_errors:
         return EXIT_USAGE
     if result.has_failures:
@@ -104,6 +139,7 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
 def _render_run(targets: list[str], result: BatchResult, color: bool) -> str:
     if (
         len(targets) == 1
+        and not result.selection_active
         and not result.discovery_errors
         and len(result.suites) == 1
         and result.suites[0].result is not None
@@ -158,3 +194,10 @@ def _same_path(first: str | Path, second: str | Path) -> bool:
         return Path(first).samefile(second)
     except OSError:
         return Path(first).resolve() == Path(second).resolve()
+
+
+def _tag_arg(value: str) -> str:
+    try:
+        return validate_tag(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc

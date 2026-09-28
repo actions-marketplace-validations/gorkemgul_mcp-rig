@@ -15,6 +15,7 @@ from referencing.exceptions import Unresolvable
 from referencing.jsonschema import DRAFT202012
 
 from mcp_rig.client import ServerSpec
+from mcp_rig.selection import validate_tag
 
 KNOWN_EXPECT_KEYS = {
     "is_error",
@@ -25,6 +26,7 @@ KNOWN_EXPECT_KEYS = {
     "json_path",
     "schema",
 }
+_MISSING = object()
 
 
 class SpecError(ValueError):
@@ -38,6 +40,7 @@ class Case:
     args: dict[str, Any] = field(default_factory=dict)
     expect: dict[str, Any] = field(default_factory=dict)
     timeout_s: float = 30.0
+    tags: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,7 @@ class Suite:
     path: Path
     server: ServerSpec
     cases: list[Case]
+    tags: frozenset[str] = field(default_factory=frozenset)
 
 
 def load_suite(path: str | Path) -> Suite:
@@ -65,7 +69,8 @@ def load_suite(path: str | Path) -> Suite:
     if not isinstance(raw_cases, list) or not raw_cases:
         raise SpecError(f"{suite_path}: 'tests' must be a non-empty list")
     cases = [_parse_case(raw, index, suite_path) for index, raw in enumerate(raw_cases)]
-    return Suite(path=suite_path, server=server, cases=cases)
+    tags = _parse_tags(data.get("tags", _MISSING), f"{suite_path}")
+    return Suite(path=suite_path, server=server, cases=cases, tags=tags)
 
 
 def _parse_server(raw: Any, path: Path) -> ServerSpec:
@@ -185,7 +190,26 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         except jsonschema.SchemaError as exc:
             raise SpecError(f"{where} ({name}): invalid 'schema': {exc.message}") from exc
         _validate_schema_references(schema, where, name)
-    return Case(name=name, call=call, args=args, expect=expect, timeout_s=float(timeout_s))
+    tags = _parse_tags(raw.get("tags", _MISSING), f"{where} ({name})")
+    return Case(
+        name=name,
+        call=call,
+        args=args,
+        expect=expect,
+        timeout_s=float(timeout_s),
+        tags=tags,
+    )
+
+
+def _parse_tags(raw: Any, where: str) -> frozenset[str]:
+    if raw is _MISSING:
+        return frozenset()
+    if not isinstance(raw, list):
+        raise SpecError(f"{where}: 'tags' must be a list")
+    try:
+        return frozenset(validate_tag(value) for value in raw)
+    except ValueError as exc:
+        raise SpecError(f"{where}: 'tags' values {exc}") from exc
 
 
 def _is_string_or_non_empty_string_list(value: Any) -> bool:

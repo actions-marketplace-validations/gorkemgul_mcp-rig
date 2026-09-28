@@ -50,6 +50,48 @@ followed by aggregate suite and case counts. A JUnit file contains one
 `<testsuite>` for every suite or invalid target beneath a shared `<testsuites>`
 root.
 
+### Filter cases and tags
+
+Suites and individual cases can declare lowercase tags. Suite tags are
+inherited by every case, and case tags are added to that inherited set:
+
+```yaml
+server: npx @playwright/mcp@latest
+tags: [playwright]
+
+tests:
+  - name: opens homepage
+    tags: [smoke, browser]
+    call: browser_navigate
+    args:
+      url: https://example.com
+
+  - name: captures screenshot
+    tags: [slow]
+    call: browser_take_screenshot
+```
+
+Select cases with case-sensitive shell-style name patterns or effective tags:
+
+```bash
+mcp-rig run suites/ --case "opens*"
+mcp-rig run suites/ --tag playwright --tag smoke
+mcp-rig run suites/ --exclude-tag slow
+mcp-rig run suites/ --case "opens*" --tag smoke --exclude-tag flaky
+```
+
+Repeated `--case` patterns use OR semantics. Repeated `--tag` options use AND
+semantics, so the case must carry every requested tag. A case is filtered out
+when it carries any repeated `--exclude-tag` value. Name, included-tag, and
+excluded-tag filters combine with AND semantics.
+
+Filtered runs report selection separately from execution, for example
+`3 selected, 7 filtered out`. Filtered-out cases are not counted as skipped
+and are absent from JUnit; skipped remains reserved for selected cases that
+could not run after an infrastructure error. If no cases match, MCP Rig does
+not start a server, writes an empty report when `--junit` is requested, and
+exits with code `2`.
+
 See the [real-world server examples](https://github.com/gorkemgul/mcp-rig/tree/main/examples) for
 pinned suites that exercise Playwright MCP, the MCP Everything reference server, and the Time
 MCP server. External examples are kept out of the main CI path and run in a separate manual and

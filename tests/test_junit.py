@@ -144,6 +144,100 @@ def test_write_batch_junit_emits_ordered_suite_children_and_root_totals(tmp_path
     assert suites[1].find("testcase/failure").text == "wrong value"
 
 
+def test_filtered_batch_junit_contains_selected_cases_and_runtime_skips_only(
+    tmp_path,
+):
+    output = tmp_path / "filtered.xml"
+    result = SuiteResult(
+        [
+            CaseResult(name="selected", status=CaseStatus.PASSED),
+            CaseResult(
+                name="selected later",
+                status=CaseStatus.SKIPPED,
+                skip_reason="session unavailable",
+            ),
+        ]
+    )
+    batch = BatchResult(
+        [SuiteRun(tmp_path / "suite.yaml", result=result)],
+        [],
+        selection_active=True,
+        selected_cases=2,
+        filtered_out_cases=1,
+    )
+
+    write_batch_junit(output, batch)
+
+    root = ET.parse(output).getroot()
+    assert root.attrib == {
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "1",
+        "time": "0.000",
+    }
+    cases = root.findall("testsuite/testcase")
+    assert [case.attrib["name"] for case in cases] == [
+        "selected",
+        "selected later",
+    ]
+    assert cases[0].find("skipped") is None
+    assert cases[1].find("skipped").attrib == {"message": "session unavailable"}
+
+
+def test_filtered_zero_suite_batch_writes_valid_empty_junit(tmp_path):
+    output = tmp_path / "empty.xml"
+    batch = BatchResult(
+        [],
+        [],
+        selection_active=True,
+        selected_cases=0,
+        filtered_out_cases=4,
+    )
+
+    write_batch_junit(output, batch)
+
+    root = ET.parse(output).getroot()
+    assert root.attrib == {
+        "tests": "0",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "0.000",
+    }
+    assert root.findall("testsuite") == []
+
+
+def test_zero_selected_batch_retains_configuration_error_in_junit(tmp_path):
+    output = tmp_path / "error.xml"
+    invalid = tmp_path / "invalid.yaml"
+    batch = BatchResult(
+        [
+            SuiteRun(
+                invalid,
+                error=BatchFailure(
+                    BatchFailureCategory.CONFIGURATION,
+                    "SpecError",
+                    "invalid suite",
+                ),
+            )
+        ],
+        [],
+        selection_active=True,
+        selected_cases=0,
+        filtered_out_cases=0,
+    )
+
+    write_batch_junit(output, batch)
+
+    root = ET.parse(output).getroot()
+    assert root.attrib["tests"] == "1"
+    assert root.attrib["errors"] == "1"
+    case = root.find("testsuite/testcase")
+    assert case is not None
+    assert case.attrib["name"] == "[suite configuration]"
+
+
 def test_write_batch_junit_adds_synthetic_discovery_parse_and_execution_errors(
     tmp_path,
 ):
