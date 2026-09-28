@@ -6,6 +6,7 @@ from mcp.types import INVALID_PARAMS
 
 from mcp_rig.client import CallOutcome, Probe, ServerSpec
 from mcp_rig.runner import CaseStatus, ErrorCategory, run_suite
+from mcp_rig.snapshots import SnapshotChanges, SnapshotSession
 from mcp_rig.spec import Case, Suite
 
 
@@ -28,6 +29,104 @@ async def test_runs_all_cases_in_order_after_an_assertion_failure(fixture_spec, 
     assert result.results[1].failures == ["contains: 'bye' not found in 'hi'"]
     assert (result.passed, result.failed, result.ok) == (2, 1, False)
     assert all(item.outcome is not None for item in result.results)
+
+
+@pytest.mark.anyio
+async def test_runner_combines_existing_and_snapshot_failures(monkeypatch, tmp_path):
+    class FakeProbe:
+        async def call(self, name, args, timeout_s):
+            return CallOutcome(False, "actual", None, 1.0)
+
+    @asynccontextmanager
+    async def fake_connect(spec, show_server_logs=False):
+        yield FakeProbe()
+
+    monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
+    suite = Suite(
+        path=tmp_path / "suite.yaml",
+        server=ServerSpec("unused"),
+        cases=[
+            Case(
+                "snapshot case",
+                "echo",
+                expect={"contains": "missing", "snapshot": True},
+            )
+        ],
+    )
+    snapshots = SnapshotSession.open(suite.path, update=False)
+
+    result = await run_suite(suite, snapshots=snapshots)
+
+    assert result.results[0].status is CaseStatus.FAILED
+    assert result.results[0].failures[0].startswith("contains:")
+    assert result.results[0].failures[1] == (
+        "snapshot: missing entry for 'snapshot case'"
+    )
+
+
+@pytest.mark.anyio
+async def test_runner_stages_snapshot_update_without_hiding_other_failure(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeProbe:
+        async def call(self, name, args, timeout_s):
+            return CallOutcome(False, "actual", None, 1.0)
+
+    @asynccontextmanager
+    async def fake_connect(spec, show_server_logs=False):
+        yield FakeProbe()
+
+    monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
+    suite = Suite(
+        path=tmp_path / "suite.yaml",
+        server=ServerSpec("unused"),
+        cases=[
+            Case(
+                "snapshot case",
+                "echo",
+                expect={"contains": "missing", "snapshot": True},
+            )
+        ],
+    )
+    snapshots = SnapshotSession.open(suite.path, update=True)
+
+    result = await run_suite(suite, snapshots=snapshots)
+
+    assert result.results[0].status is CaseStatus.FAILED
+    assert len(result.results[0].failures) == 1
+    assert result.results[0].failures[0].startswith("contains:")
+    assert snapshots.finalize(["snapshot case"], prune=True) == SnapshotChanges(
+        added=1
+    )
+
+
+@pytest.mark.anyio
+async def test_runner_does_not_evaluate_snapshots_for_ordinary_case(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeProbe:
+        async def call(self, name, args, timeout_s):
+            return CallOutcome(False, "ok", {"not-json": {1, 2}}, 1.0)
+
+    @asynccontextmanager
+    async def fake_connect(spec, show_server_logs=False):
+        yield FakeProbe()
+
+    monkeypatch.setattr("mcp_rig.runner.connect", fake_connect)
+    suite = Suite(
+        path=tmp_path / "suite.yaml",
+        server=ServerSpec("unused"),
+        cases=[Case("ordinary", "echo", expect={"contains": "ok"})],
+    )
+
+    result = await run_suite(
+        suite,
+        snapshots=SnapshotSession.open(suite.path, update=False),
+    )
+
+    assert result.results[0].status is CaseStatus.PASSED
 
 
 @pytest.mark.anyio

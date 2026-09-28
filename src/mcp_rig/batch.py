@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
 from mcp_rig.discovery import DiscoveryError, DiscoveryResult
 from mcp_rig.runner import CaseStatus, SuiteResult, run_suite
 from mcp_rig.selection import SelectionFilter, select_suite
+from mcp_rig.snapshots import SnapshotChanges, SnapshotError, SnapshotSession
 from mcp_rig.spec import load_suite
 
 
 class BatchFailureCategory(StrEnum):
     CONFIGURATION = "configuration"
     EXECUTION = "execution"
+    SNAPSHOT = "snapshot"
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,8 @@ class BatchResult:
     selection_active: bool = False
     selected_cases: int = 0
     filtered_out_cases: int = 0
+    snapshot_update_active: bool = False
+    snapshot_changes: SnapshotChanges = field(default_factory=SnapshotChanges)
 
     @property
     def suite_passed(self) -> int:
@@ -94,11 +98,13 @@ async def run_batch(
     discovery: DiscoveryResult,
     show_server_logs: bool = False,
     selection: SelectionFilter | None = None,
+    update_snapshots: bool = False,
 ) -> BatchResult:
     selection = selection or SelectionFilter()
     suites: list[SuiteRun] = []
     selected_cases = 0
     filtered_out_cases = 0
+    snapshot_changes = SnapshotChanges()
     for path in discovery.paths:
         try:
             suite = load_suite(path)
@@ -117,11 +123,48 @@ async def run_batch(
         if not selected.suite.cases:
             continue
 
+        declared_snapshot_names = [
+            case.name for case in suite.cases if case.expect.get("snapshot") is True
+        ]
+        selected_uses_snapshots = any(
+            case.expect.get("snapshot") is True for case in selected.suite.cases
+        )
+        snapshots = None
+        if selected_uses_snapshots:
+            try:
+                snapshots = SnapshotSession.open(
+                    suite.path,
+                    update=update_snapshots,
+                )
+            except SnapshotError as exc:
+                suites.append(
+                    SuiteRun(
+                        path,
+                        error=_failure(BatchFailureCategory.SNAPSHOT, exc),
+                    )
+                )
+                continue
+
         try:
-            result = await run_suite(
-                selected.suite,
-                show_server_logs=show_server_logs,
+            if snapshots is None:
+                result = await run_suite(
+                    selected.suite,
+                    show_server_logs=show_server_logs,
+                )
+            else:
+                result = await run_suite(
+                    selected.suite,
+                    show_server_logs=show_server_logs,
+                    snapshots=snapshots,
+                )
+        except SnapshotError as exc:
+            suites.append(
+                SuiteRun(
+                    path,
+                    error=_failure(BatchFailureCategory.SNAPSHOT, exc),
+                )
             )
+            continue
         except Exception as exc:
             suites.append(
                 SuiteRun(
@@ -130,7 +173,17 @@ async def run_batch(
                 )
             )
             continue
-        suites.append(SuiteRun(path, result=result))
+
+        snapshot_error = None
+        if snapshots is not None:
+            try:
+                snapshot_changes += snapshots.finalize(
+                    declared_snapshot_names,
+                    prune=not selection.active and result.errors == 0,
+                )
+            except SnapshotError as exc:
+                snapshot_error = _failure(BatchFailureCategory.SNAPSHOT, exc)
+        suites.append(SuiteRun(path, result=result, error=snapshot_error))
 
     return BatchResult(
         suites=suites,
@@ -138,6 +191,8 @@ async def run_batch(
         selection_active=selection.active,
         selected_cases=selected_cases,
         filtered_out_cases=filtered_out_cases,
+        snapshot_update_active=update_snapshots,
+        snapshot_changes=snapshot_changes,
     )
 
 

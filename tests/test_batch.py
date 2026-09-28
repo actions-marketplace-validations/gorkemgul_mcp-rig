@@ -9,7 +9,7 @@ from mcp_rig.batch import (
     SuiteRun,
     run_batch,
 )
-from mcp_rig.client import ServerSpec
+from mcp_rig.client import CallOutcome, ServerSpec
 from mcp_rig.discovery import DiscoveryError, DiscoveryResult
 from mcp_rig.runner import (
     CaseResult,
@@ -19,6 +19,7 @@ from mcp_rig.runner import (
     SuiteResult,
 )
 from mcp_rig.selection import SelectionFilter
+from mcp_rig.snapshots import SnapshotChanges
 from mcp_rig.spec import Case, SpecError, Suite
 
 
@@ -356,3 +357,391 @@ async def test_batch_propagates_keyboard_interrupt(monkeypatch, tmp_path):
 
     with pytest.raises(KeyboardInterrupt):
         await run_batch(DiscoveryResult([path], []))
+
+
+@pytest.mark.anyio
+async def test_batch_opens_snapshot_session_for_selected_case_and_aggregates_update(
+    monkeypatch,
+    tmp_path,
+):
+    path = tmp_path / "suite.yaml"
+    suite = Suite(
+        path,
+        ServerSpec("unused"),
+        [Case("snapshot case", "echo", expect={"snapshot": True})],
+    )
+
+    async def fake_run(selected, show_server_logs=False, snapshots=None):
+        assert snapshots is not None
+        assert snapshots.evaluate(
+            "snapshot case",
+            CallOutcome(False, "captured", None, 1),
+        ) == []
+        return passing_result("snapshot case")
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", lambda _: suite)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(
+        DiscoveryResult([path], []),
+        update_snapshots=True,
+    )
+
+    assert result.snapshot_update_active is True
+    assert result.snapshot_changes == SnapshotChanges(added=1)
+    assert (tmp_path / "suite.snap.yaml").exists()
+
+
+@pytest.mark.anyio
+async def test_batch_does_not_open_sidecar_for_filtered_or_non_snapshot_suite(
+    monkeypatch,
+    tmp_path,
+):
+    filtered_path = tmp_path / "filtered.yaml"
+    ordinary_path = tmp_path / "ordinary.yaml"
+    (tmp_path / "filtered.snap.yaml").write_text("malformed", encoding="utf-8")
+    (tmp_path / "ordinary.snap.yaml").write_text("malformed", encoding="utf-8")
+    suites = {
+        filtered_path: Suite(
+            filtered_path,
+            ServerSpec("unused"),
+            [
+                Case(
+                    "filtered snapshot",
+                    "echo",
+                    expect={"snapshot": True},
+                    tags=frozenset({"slow"}),
+                )
+            ],
+        ),
+        ordinary_path: Suite(
+            ordinary_path,
+            ServerSpec("unused"),
+            [Case("ordinary", "echo", tags=frozenset({"smoke"}))],
+        ),
+    }
+
+    async def fake_run(selected, show_server_logs=False):
+        assert selected.path == ordinary_path
+        return passing_result("ordinary")
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", suites.__getitem__)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(
+        DiscoveryResult([filtered_path, ordinary_path], []),
+        selection=SelectionFilter(required_tags=frozenset({"smoke"})),
+        update_snapshots=True,
+    )
+
+    assert result.has_errors is False
+    assert [item.path for item in result.suites] == [ordinary_path]
+    assert result.snapshot_changes == SnapshotChanges()
+
+
+@pytest.mark.anyio
+async def test_filtered_snapshot_update_preserves_unselected_entries(
+    monkeypatch,
+    tmp_path,
+):
+    path = tmp_path / "suite.yaml"
+    (tmp_path / "suite.snap.yaml").write_text(
+        "version: 1\n"
+        "snapshots:\n"
+        "  selected: {is_error: false, kind: text, value: old}\n"
+        "  unselected: {is_error: false, kind: text, value: keep}\n",
+        encoding="utf-8",
+    )
+    suite = Suite(
+        path,
+        ServerSpec("unused"),
+        [
+            Case(
+                "selected",
+                "echo",
+                expect={"snapshot": True},
+                tags=frozenset({"smoke"}),
+            ),
+            Case(
+                "unselected",
+                "echo",
+                expect={"snapshot": True},
+                tags=frozenset({"slow"}),
+            ),
+        ],
+    )
+
+    async def fake_run(selected, show_server_logs=False, snapshots=None):
+        snapshots.evaluate("selected", CallOutcome(False, "new", None, 1))
+        return passing_result("selected")
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", lambda _: suite)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(
+        DiscoveryResult([path], []),
+        selection=SelectionFilter(required_tags=frozenset({"smoke"})),
+        update_snapshots=True,
+    )
+
+    contents = (tmp_path / "suite.snap.yaml").read_text(encoding="utf-8")
+    assert result.snapshot_changes == SnapshotChanges(updated=1)
+    assert "value: new" in contents
+    assert "value: keep" in contents
+
+
+@pytest.mark.anyio
+async def test_complete_snapshot_update_prunes_stale_entry(monkeypatch, tmp_path):
+    path = tmp_path / "suite.yaml"
+    (tmp_path / "suite.snap.yaml").write_text(
+        "version: 1\n"
+        "snapshots:\n"
+        "  case: {is_error: false, kind: text, value: same}\n"
+        "  stale: {is_error: false, kind: text, value: old}\n",
+        encoding="utf-8",
+    )
+    suite = Suite(
+        path,
+        ServerSpec("unused"),
+        [Case("case", "echo", expect={"snapshot": True})],
+    )
+
+    async def fake_run(selected, show_server_logs=False, snapshots=None):
+        snapshots.evaluate("case", CallOutcome(False, "same", None, 1))
+        return passing_result("case")
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", lambda _: suite)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(
+        DiscoveryResult([path], []),
+        update_snapshots=True,
+    )
+
+    contents = (tmp_path / "suite.snap.yaml").read_text(encoding="utf-8")
+    assert result.snapshot_changes == SnapshotChanges(unchanged=1, removed=1)
+    assert "stale" not in contents
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "result",
+    [
+        SuiteResult(
+            [
+                CaseResult(
+                    "case",
+                    CaseStatus.ERROR,
+                    error=InfrastructureError(
+                        ErrorCategory.TIMEOUT,
+                        "TimeoutError",
+                        "timed out",
+                    ),
+                )
+            ]
+        ),
+        SuiteResult(
+            [CaseResult("case", CaseStatus.PASSED)],
+            suite_error=InfrastructureError(
+                ErrorCategory.TEARDOWN,
+                "RuntimeError",
+                "close failed",
+            ),
+        ),
+    ],
+)
+async def test_infrastructure_error_prevents_snapshot_pruning(
+    monkeypatch,
+    tmp_path,
+    result,
+):
+    path = tmp_path / "suite.yaml"
+    (tmp_path / "suite.snap.yaml").write_text(
+        "version: 1\n"
+        "snapshots:\n"
+        "  case: {is_error: false, kind: text, value: old}\n"
+        "  stale: {is_error: false, kind: text, value: keep}\n",
+        encoding="utf-8",
+    )
+    suite = Suite(
+        path,
+        ServerSpec("unused"),
+        [Case("case", "echo", expect={"snapshot": True})],
+    )
+
+    async def fake_run(selected, show_server_logs=False, snapshots=None):
+        return result
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", lambda _: suite)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    batch = await run_batch(
+        DiscoveryResult([path], []),
+        update_snapshots=True,
+    )
+
+    assert batch.snapshot_changes == SnapshotChanges()
+    assert "stale" in (tmp_path / "suite.snap.yaml").read_text(encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_snapshot_changes_aggregate_across_suites(monkeypatch, tmp_path):
+    added_path = tmp_path / "added.yaml"
+    updated_path = tmp_path / "updated.yaml"
+    (tmp_path / "updated.snap.yaml").write_text(
+        "version: 1\nsnapshots:\n"
+        "  case: {is_error: false, kind: text, value: old}\n",
+        encoding="utf-8",
+    )
+    suites = {
+        path: Suite(
+            path,
+            ServerSpec("unused"),
+            [Case("case", "echo", expect={"snapshot": True})],
+        )
+        for path in (added_path, updated_path)
+    }
+
+    async def fake_run(selected, show_server_logs=False, snapshots=None):
+        snapshots.evaluate("case", CallOutcome(False, "new", None, 1))
+        return passing_result("case")
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", suites.__getitem__)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(
+        DiscoveryResult([added_path, updated_path], []),
+        update_snapshots=True,
+    )
+
+    assert result.snapshot_changes == SnapshotChanges(added=1, updated=1)
+
+
+@pytest.mark.anyio
+async def test_malformed_snapshot_is_isolated_and_later_suite_runs(
+    monkeypatch,
+    tmp_path,
+):
+    invalid = tmp_path / "invalid.yaml"
+    valid = tmp_path / "valid.yaml"
+    (tmp_path / "invalid.snap.yaml").write_text("malformed", encoding="utf-8")
+    suites = {
+        invalid: Suite(
+            invalid,
+            ServerSpec("unused"),
+            [Case("snapshot", "echo", expect={"snapshot": True})],
+        ),
+        valid: Suite(valid, ServerSpec("unused"), [Case("ordinary", "echo")]),
+    }
+    executed = []
+
+    async def fake_run(selected, show_server_logs=False):
+        executed.append(selected.path)
+        return passing_result(selected.path.stem)
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", suites.__getitem__)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(DiscoveryResult([invalid, valid], []))
+
+    assert executed == [valid]
+    assert result.suites[0].error.category is BatchFailureCategory.SNAPSHOT
+    assert result.suites[1].result is not None
+
+
+@pytest.mark.anyio
+async def test_snapshot_read_oserror_is_suite_local(monkeypatch, tmp_path):
+    blocked = tmp_path / "blocked.yaml"
+    later = tmp_path / "later.yaml"
+    sidecar = tmp_path / "blocked.snap.yaml"
+    sidecar.write_text("version: 1\nsnapshots: {}\n", encoding="utf-8")
+    suites = {
+        blocked: Suite(
+            blocked,
+            ServerSpec("unused"),
+            [Case("snapshot", "echo", expect={"snapshot": True})],
+        ),
+        later: Suite(later, ServerSpec("unused"), [Case("ordinary", "echo")]),
+    }
+    real_read_text = Path.read_text
+
+    def failing_read_text(path, *args, **kwargs):
+        if path == sidecar:
+            raise PermissionError("read denied")
+        return real_read_text(path, *args, **kwargs)
+
+    async def fake_run(selected, show_server_logs=False):
+        return passing_result(selected.path.stem)
+
+    monkeypatch.setattr(Path, "read_text", failing_read_text)
+    monkeypatch.setattr("mcp_rig.batch.load_suite", suites.__getitem__)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(DiscoveryResult([blocked, later], []))
+
+    assert result.suites[0].error.category is BatchFailureCategory.SNAPSHOT
+    assert "read denied" in result.suites[0].error.message
+    assert result.suites[1].result is not None
+
+
+@pytest.mark.anyio
+async def test_snapshot_persistence_failure_keeps_result_and_later_suite_runs(
+    monkeypatch,
+    tmp_path,
+):
+    snapshot_path = tmp_path / "snapshot.yaml"
+    later_path = tmp_path / "later.yaml"
+    suites = {
+        snapshot_path: Suite(
+            snapshot_path,
+            ServerSpec("unused"),
+            [Case("snapshot", "echo", expect={"snapshot": True})],
+        ),
+        later_path: Suite(later_path, ServerSpec("unused"), [Case("later", "echo")]),
+    }
+
+    async def fake_run(selected, show_server_logs=False, snapshots=None):
+        if snapshots is not None:
+            snapshots.evaluate("snapshot", CallOutcome(False, "captured", None, 1))
+        return passing_result(selected.path.stem)
+
+    def failing_replace(source, destination):
+        raise OSError("replace denied")
+
+    monkeypatch.setattr("mcp_rig.snapshots.os.replace", failing_replace)
+    monkeypatch.setattr("mcp_rig.batch.load_suite", suites.__getitem__)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", fake_run)
+
+    result = await run_batch(
+        DiscoveryResult([snapshot_path, later_path], []),
+        update_snapshots=True,
+    )
+
+    assert result.suites[0].result is not None
+    assert result.suites[0].error.category is BatchFailureCategory.SNAPSHOT
+    assert result.suites[1].result is not None
+
+
+@pytest.mark.anyio
+async def test_snapshot_batch_still_propagates_keyboard_interrupt(
+    monkeypatch,
+    tmp_path,
+):
+    path = tmp_path / "suite.yaml"
+    suite = Suite(
+        path,
+        ServerSpec("unused"),
+        [Case("snapshot", "echo", expect={"snapshot": True})],
+    )
+
+    async def interrupt(selected, show_server_logs=False, snapshots=None):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("mcp_rig.batch.load_suite", lambda _: suite)
+    monkeypatch.setattr("mcp_rig.batch.run_suite", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        await run_batch(
+            DiscoveryResult([path], []),
+            update_snapshots=True,
+        )
