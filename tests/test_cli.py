@@ -272,6 +272,23 @@ def test_full_snapshot_update_prunes_stale_entry(tmp_path, fixture_spec, capsys)
     assert list(snapshots) == ["first snapshot"]
 
 
+def test_full_snapshot_update_deletes_sidecar_after_last_declaration_is_removed(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    suite = write_suite(tmp_path, fixture_spec, snapshot_cases())
+    sidecar = tmp_path / "suite.snap.yaml"
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    capsys.readouterr()
+    write_suite(tmp_path, fixture_spec, PASSING)
+
+    assert main(["run", str(suite), "--update-snapshots"]) == 0
+    captured = capsys.readouterr()
+    assert "Snapshots: 0 added, 0 updated, 0 unchanged, 1 removed" in captured.out
+    assert sidecar.exists() is False
+
+
 def test_malformed_snapshot_exits_two_without_traceback(
     tmp_path,
     fixture_spec,
@@ -327,6 +344,28 @@ def test_snapshot_error_does_not_prevent_later_suite_execution(
     captured = capsys.readouterr()
     assert "a-invalid.snap.yaml" in captured.err
     assert "✓ adds" in captured.out
+
+
+def test_invalid_utf8_snapshot_exits_two_and_later_suite_runs(
+    tmp_path,
+    fixture_spec,
+    capsys,
+):
+    invalid = write_suite(
+        tmp_path,
+        fixture_spec,
+        snapshot_cases(),
+        name="a-invalid.yaml",
+    )
+    (tmp_path / "a-invalid.snap.yaml").write_bytes(b"\xff\xfe")
+    valid = write_suite(tmp_path, fixture_spec, PASSING, name="b-valid.yaml")
+
+    assert main(["run", str(invalid), str(valid)]) == 2
+    captured = capsys.readouterr()
+    assert "a-invalid.snap.yaml" in captured.err
+    assert "could not read snapshot file" in captured.err
+    assert "✓ adds" in captured.out
+    assert "Traceback" not in captured.out + captured.err
 
 
 def test_no_snapshot_run_keeps_existing_output_without_snapshot_summary(
@@ -662,6 +701,29 @@ def test_junit_path_cannot_overwrite_suite_file(tmp_path, capsys):
     assert suite_path.read_text(encoding="utf-8") == original
     assert "JUnit report path must differ from suite path" in captured.err
     assert "could not run server" not in captured.err
+
+
+@pytest.mark.parametrize("sidecar_exists", [False, True])
+def test_junit_path_cannot_overwrite_suite_snapshot_sidecar(
+    tmp_path,
+    fixture_spec,
+    capsys,
+    sidecar_exists,
+):
+    suite_path = write_suite(tmp_path, fixture_spec, PASSING)
+    sidecar = tmp_path / "suite.snap.yaml"
+    original = b"version: 1\nsnapshots: {}\n"
+    if sidecar_exists:
+        sidecar.write_bytes(original)
+
+    assert main(["run", str(suite_path), "--junit", str(sidecar)]) == 2
+    captured = capsys.readouterr()
+    if sidecar_exists:
+        assert sidecar.read_bytes() == original
+    else:
+        assert sidecar.exists() is False
+    assert "JUnit report path must differ from suite snapshot path" in captured.err
+    assert "✓ adds" not in captured.out
 
 
 def test_run_accepts_multiple_files_and_recursive_directory_targets(

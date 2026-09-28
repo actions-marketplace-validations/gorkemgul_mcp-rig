@@ -81,7 +81,7 @@ class SnapshotSession:
         expected = self._entries.get(case_name)
         if expected is None:
             return [f"snapshot: missing entry for {case_name!r}"]
-        if expected == actual:
+        if _entries_equal(expected, actual):
             return []
         return [
             f"snapshot: mismatch for {case_name!r}\n{_entry_diff(expected, actual)}"
@@ -98,11 +98,11 @@ class SnapshotSession:
 
         added = sum(name not in self._entries for name in self._observed)
         updated = sum(
-            name in self._entries and self._entries[name] != entry
+            name in self._entries and not _entries_equal(self._entries[name], entry)
             for name, entry in self._observed.items()
         )
         unchanged = sum(
-            name in self._entries and self._entries[name] == entry
+            name in self._entries and _entries_equal(self._entries[name], entry)
             for name, entry in self._observed.items()
         )
         declared = list(dict.fromkeys(declared_names))
@@ -172,7 +172,7 @@ def _load_entries(path: Path) -> dict[str, SnapshotEntry]:
         return {}
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
         raise SnapshotError(f"{path}: could not read snapshot file: {exc}") from exc
     if not isinstance(raw, dict) or set(raw) != {"version", "snapshots"}:
         raise SnapshotError(f"{path}: snapshot file must contain only 'version' and 'snapshots'")
@@ -204,12 +204,16 @@ def _parse_entry(path: Path, name: str, raw: Any) -> SnapshotEntry:
         if not isinstance(value, str):
             raise SnapshotError(f"{where}: text 'value' must be a string")
     else:
-        value = _canonical_json(value)
+        try:
+            value = _canonical_json(value)
+        except SnapshotError as exc:
+            raise SnapshotError(f"{where}: structured 'value' is invalid: {exc}") from exc
     return SnapshotEntry(is_error=raw["is_error"], kind=kind, value=value)
 
 
 def _canonical_json(value: Any) -> Any:
     try:
+        _validate_json_mapping_keys(value)
         encoded = json.dumps(
             value,
             allow_nan=False,
@@ -221,12 +225,35 @@ def _canonical_json(value: Any) -> Any:
         raise SnapshotError(f"structured result is not JSON-compatible: {exc}") from exc
 
 
+def _validate_json_mapping_keys(value: Any) -> None:
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise SnapshotError("structured result mapping keys must be strings")
+        for child in value.values():
+            _validate_json_mapping_keys(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            _validate_json_mapping_keys(child)
+
+
 def _entry_data(entry: SnapshotEntry) -> dict[str, Any]:
     return {
         "is_error": entry.is_error,
         "kind": entry.kind.value,
         "value": entry.value,
     }
+
+
+def _entries_equal(first: SnapshotEntry, second: SnapshotEntry) -> bool:
+    if first.is_error != second.is_error or first.kind is not second.kind:
+        return False
+    if first.kind is SnapshotKind.TEXT:
+        return first.value == second.value
+    return json.dumps(first.value, sort_keys=True, ensure_ascii=False) == json.dumps(
+        second.value,
+        sort_keys=True,
+        ensure_ascii=False,
+    )
 
 
 def _entry_diff(expected: SnapshotEntry, actual: SnapshotEntry) -> str:

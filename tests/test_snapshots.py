@@ -107,6 +107,44 @@ def test_equal_snapshot_has_no_failure(tmp_path: Path):
     assert session.evaluate("case", text_outcome("same")) == []
 
 
+def test_structured_boolean_and_number_values_are_not_equal(tmp_path: Path):
+    suite = write_snapshot_file(
+        tmp_path,
+        {
+            "case": {
+                "is_error": False,
+                "kind": "structured",
+                "value": {"enabled": True, "nested": [False]},
+            }
+        },
+    )
+
+    failure = SnapshotSession.open(suite, update=False).evaluate(
+        "case",
+        CallOutcome(False, "", {"enabled": 1, "nested": [0]}, 42),
+    )
+
+    assert len(failure) == 1
+    assert failure[0].startswith("snapshot: mismatch for 'case'")
+
+
+def test_update_counts_boolean_to_number_change_as_updated(tmp_path: Path):
+    suite = write_snapshot_file(
+        tmp_path,
+        {
+            "case": {
+                "is_error": False,
+                "kind": "structured",
+                "value": {"enabled": True},
+            }
+        },
+    )
+    session = SnapshotSession.open(suite, update=True)
+    session.evaluate("case", CallOutcome(False, "", {"enabled": 1}, 42))
+
+    assert session.finalize(["case"], prune=True) == SnapshotChanges(updated=1)
+
+
 @pytest.mark.parametrize(
     ("expected", "outcome"),
     [
@@ -145,6 +183,11 @@ def test_text_comparison_is_exact_for_whitespace_unicode_and_crlf(tmp_path: Path
 def test_rejects_non_json_compatible_structured_content(structured):
     with pytest.raises(SnapshotError, match="not JSON-compatible"):
         snapshot_entry(CallOutcome(False, "", structured, 42))
+
+
+def test_rejects_non_string_structured_mapping_keys():
+    with pytest.raises(SnapshotError, match="mapping keys must be strings"):
+        snapshot_entry(CallOutcome(False, "", {1: "value"}, 42))
 
 
 def test_snapshot_changes_add_component_counts():
@@ -283,6 +326,32 @@ def test_rejects_non_integer_version_and_unknown_schema_fields(tmp_path: Path, b
     (tmp_path / "suite.snap.yaml").write_text(body, encoding="utf-8")
 
     with pytest.raises(SnapshotError):
+        SnapshotSession.open(suite, update=False)
+
+
+def test_invalid_utf8_snapshot_is_reported_as_snapshot_error(tmp_path: Path):
+    suite = tmp_path / "suite.yaml"
+    suite.write_text("suite", encoding="utf-8")
+    sidecar = tmp_path / "suite.snap.yaml"
+    sidecar.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(SnapshotError, match=r"suite\.snap\.yaml: could not read"):
+        SnapshotSession.open(suite, update=False)
+
+
+def test_invalid_structured_sidecar_value_includes_entry_context(tmp_path: Path):
+    suite = tmp_path / "suite.yaml"
+    suite.write_text("suite", encoding="utf-8")
+    (tmp_path / "suite.snap.yaml").write_text(
+        "version: 1\nsnapshots:\n  case:\n"
+        "    is_error: false\n    kind: structured\n    value: .nan\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SnapshotError,
+        match=r"suite\.snap\.yaml: snapshots\['case'\]: structured 'value'",
+    ):
         SnapshotSession.open(suite, update=False)
 
 

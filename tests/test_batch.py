@@ -93,6 +93,26 @@ def test_batch_counts_suite_and_case_outcomes_with_discovery_errors():
     assert result.has_errors is True
 
 
+def test_suite_with_snapshot_persistence_error_is_not_also_counted_as_passed():
+    result = BatchResult(
+        suites=[
+            SuiteRun(
+                Path("suite.yaml"),
+                result=passing_result(),
+                error=BatchFailure(
+                    BatchFailureCategory.SNAPSHOT,
+                    "SnapshotError",
+                    "write failed",
+                ),
+            )
+        ],
+        discovery_errors=[],
+    )
+
+    assert (result.suite_passed, result.suite_failed, result.suite_errors) == (0, 0, 1)
+    assert result.case_passed == 1
+
+
 @pytest.mark.anyio
 async def test_batch_runs_paths_sequentially_and_forwards_server_logs(
     monkeypatch, tmp_path

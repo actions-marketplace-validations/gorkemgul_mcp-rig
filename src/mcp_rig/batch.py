@@ -9,7 +9,12 @@ from pathlib import Path
 from mcp_rig.discovery import DiscoveryError, DiscoveryResult
 from mcp_rig.runner import CaseStatus, SuiteResult, run_suite
 from mcp_rig.selection import SelectionFilter, select_suite
-from mcp_rig.snapshots import SnapshotChanges, SnapshotError, SnapshotSession
+from mcp_rig.snapshots import (
+    SnapshotChanges,
+    SnapshotError,
+    SnapshotSession,
+    snapshot_path,
+)
 from mcp_rig.spec import load_suite
 
 
@@ -45,12 +50,16 @@ class BatchResult:
 
     @property
     def suite_passed(self) -> int:
-        return sum(item.result is not None and item.result.ok for item in self.suites)
+        return sum(
+            item.error is None and item.result is not None and item.result.ok
+            for item in self.suites
+        )
 
     @property
     def suite_failed(self) -> int:
         return sum(
             item.result is not None
+            and item.error is None
             and item.result.failed > 0
             and item.result.errors == 0
             for item in self.suites
@@ -130,7 +139,21 @@ async def run_batch(
             case.expect.get("snapshot") is True for case in selected.suite.cases
         )
         snapshots = None
-        if selected_uses_snapshots:
+        try:
+            cleans_existing_sidecar = (
+                update_snapshots
+                and not selection.active
+                and snapshot_path(suite.path).exists()
+            )
+        except SnapshotError as exc:
+            suites.append(
+                SuiteRun(
+                    path,
+                    error=_failure(BatchFailureCategory.SNAPSHOT, exc),
+                )
+            )
+            continue
+        if selected_uses_snapshots or cleans_existing_sidecar:
             try:
                 snapshots = SnapshotSession.open(
                     suite.path,

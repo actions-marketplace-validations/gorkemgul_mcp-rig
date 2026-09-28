@@ -16,6 +16,7 @@ from mcp_rig.junit import write_batch_junit
 from mcp_rig.lint import LintWarning, lint_tools
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 from mcp_rig.selection import SelectionFilter, validate_tag
+from mcp_rig.snapshots import SNAPSHOT_SUFFIX
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -116,6 +117,15 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
     discovery = discover_suites(args.targets)
     if args.junit and any(_same_path(path, args.junit) for path in discovery.paths):
         print("error: JUnit report path must differ from suite path", file=sys.stderr)
+        return EXIT_USAGE
+    if args.junit and any(
+        _same_path(path.with_suffix(SNAPSHOT_SUFFIX), args.junit)
+        for path in discovery.paths
+    ):
+        print(
+            "error: JUnit report path must differ from suite snapshot path",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
 
     result = anyio.run(
