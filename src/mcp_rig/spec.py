@@ -16,6 +16,7 @@ from referencing.jsonschema import DRAFT202012
 
 from mcp_rig.client import ServerSpec
 from mcp_rig.selection import validate_tag
+from mcp_rig.snapshots import SnapshotError, snapshot_path
 
 KNOWN_EXPECT_KEYS = {
     "is_error",
@@ -25,6 +26,7 @@ KNOWN_EXPECT_KEYS = {
     "max_latency_ms",
     "json_path",
     "schema",
+    "snapshot",
 }
 _MISSING = object()
 
@@ -69,6 +71,7 @@ def load_suite(path: str | Path) -> Suite:
     if not isinstance(raw_cases, list) or not raw_cases:
         raise SpecError(f"{suite_path}: 'tests' must be a non-empty list")
     cases = [_parse_case(raw, index, suite_path) for index, raw in enumerate(raw_cases)]
+    _validate_snapshot_cases(cases, suite_path)
     tags = _parse_tags(data.get("tags", _MISSING), f"{suite_path}")
     return Suite(path=suite_path, server=server, cases=cases, tags=tags)
 
@@ -147,6 +150,8 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         raise SpecError(f"{where} ({name}): unknown expect keys: {names}")
     if "is_error" in expect and not isinstance(expect["is_error"], bool):
         raise SpecError(f"{where} ({name}): 'is_error' must be a boolean")
+    if "snapshot" in expect and expect["snapshot"] is not True:
+        raise SpecError(f"{where} ({name}): 'snapshot' must be true")
     if "contains" in expect:
         contains = expect["contains"]
         if not _is_string_or_non_empty_string_list(contains):
@@ -210,6 +215,21 @@ def _parse_tags(raw: Any, where: str) -> frozenset[str]:
         return frozenset(validate_tag(value) for value in raw)
     except ValueError as exc:
         raise SpecError(f"{where}: 'tags' values {exc}") from exc
+
+
+def _validate_snapshot_cases(cases: list[Case], path: Path) -> None:
+    seen: set[str] = set()
+    for case in cases:
+        if case.expect.get("snapshot") is not True:
+            continue
+        if case.name in seen:
+            raise SpecError(f"{path}: duplicate snapshot case name {case.name!r}")
+        seen.add(case.name)
+    if seen:
+        try:
+            snapshot_path(path)
+        except SnapshotError as exc:
+            raise SpecError(str(exc)) from exc
 
 
 def _is_string_or_non_empty_string_list(value: Any) -> bool:

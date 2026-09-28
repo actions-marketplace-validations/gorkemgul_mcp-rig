@@ -107,6 +107,77 @@ def test_rejects_invalid_tags_with_location(tmp_path, body, location):
         load_suite(write_suite(tmp_path, body))
 
 
+def test_accepts_snapshot_true_with_other_expectations(tmp_path):
+    suite = load_suite(
+        write_suite(
+            tmp_path,
+            """
+server: python server.py
+tests:
+  - name: user payload
+    call: get_user
+    expect: {snapshot: true, contains: Ada}
+""",
+        )
+    )
+
+    assert suite.cases[0].expect == {"snapshot": True, "contains": "Ada"}
+
+
+@pytest.mark.parametrize("value", ["false", "null", "1", "'true'", "{}", "[]"])
+def test_rejects_snapshot_values_other_than_boolean_true(tmp_path, value):
+    body = f"""
+server: python server.py
+tests:
+  - name: user payload
+    call: get_user
+    expect: {{snapshot: {value}}}
+"""
+
+    with pytest.raises(SpecError, match=r"tests\[0\].*'snapshot' must be true"):
+        load_suite(write_suite(tmp_path, body))
+
+
+def test_rejects_duplicate_snapshot_case_names(tmp_path):
+    body = """
+server: python server.py
+tests:
+  - {name: same, call: first, expect: {snapshot: true}}
+  - {name: same, call: second, expect: {snapshot: true}}
+"""
+
+    with pytest.raises(SpecError, match="duplicate snapshot case name 'same'"):
+        load_suite(write_suite(tmp_path, body))
+
+
+def test_allows_duplicate_case_names_when_only_one_uses_snapshot(tmp_path):
+    body = """
+server: python server.py
+tests:
+  - {name: same, call: first, expect: {snapshot: true}}
+  - {name: same, call: second}
+"""
+
+    suite = load_suite(write_suite(tmp_path, body))
+
+    assert [case.name for case in suite.cases] == ["same", "same"]
+
+
+def test_rejects_snapshot_suite_with_ambiguous_sidecar_owner(tmp_path):
+    suite = write_suite(
+        tmp_path,
+        """
+server: python server.py
+tests:
+  - {name: snapshots, call: echo, expect: {snapshot: true}}
+""",
+    )
+    (tmp_path / "suite.yml").write_text("server: python other.py\ntests: []\n", encoding="utf-8")
+
+    with pytest.raises(SpecError, match=r"suite\.yaml.*same snapshot sidecar"):
+        load_suite(suite)
+
+
 def test_loads_mapping_server_and_resolves_relative_cwd(tmp_path):
     suite = load_suite(
         write_suite(

@@ -19,6 +19,22 @@ def test_discovers_yaml_recursively_in_canonical_sorted_order(tmp_path):
     assert result.errors == []
 
 
+def test_ignores_snapshot_sidecars_but_rejects_explicit_sidecar_target(tmp_path):
+    suite = tmp_path / "suite.yaml"
+    sidecar = tmp_path / "suite.snap.yaml"
+    suite.write_text("suite", encoding="utf-8")
+    sidecar.write_text("version: 1\nsnapshots: {}\n", encoding="utf-8")
+
+    discovered = discover_suites([tmp_path])
+    explicit = discover_suites([sidecar])
+
+    assert discovered.paths == [suite.resolve()]
+    assert discovered.errors == []
+    assert explicit.paths == []
+    assert len(explicit.errors) == 1
+    assert "snapshot sidecar" in explicit.errors[0].message
+
+
 def test_deduplicates_relative_absolute_directory_and_symlink_targets(
     tmp_path, monkeypatch
 ):
