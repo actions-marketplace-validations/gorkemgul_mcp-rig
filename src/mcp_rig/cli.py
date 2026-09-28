@@ -71,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         metavar="TAG",
         help="exclude cases carrying this effective tag; repeat for OR",
     )
+    run_parser.add_argument(
+        "--update-snapshots",
+        action="store_true",
+        help="create, update, and prune snapshot sidecars",
+    )
     check_parser = commands.add_parser(
         "check",
         help="run protocol checks and tool lint without a suite",
@@ -113,7 +118,13 @@ def _cmd_run(args: argparse.Namespace, color: bool) -> int:
         print("error: JUnit report path must differ from suite path", file=sys.stderr)
         return EXIT_USAGE
 
-    result = anyio.run(run_batch, discovery, args.server_logs, selection)
+    result = anyio.run(
+        run_batch,
+        discovery,
+        args.server_logs,
+        selection,
+        args.update_snapshots,
+    )
     errors = render_batch_errors(result)
     if errors:
         for line in errors.splitlines():
@@ -140,6 +151,7 @@ def _render_run(targets: list[str], result: BatchResult, color: bool) -> str:
     if (
         len(targets) == 1
         and not result.selection_active
+        and not result.snapshot_update_active
         and not result.discovery_errors
         and len(result.suites) == 1
         and result.suites[0].result is not None

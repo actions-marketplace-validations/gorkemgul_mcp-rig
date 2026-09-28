@@ -144,6 +144,107 @@ def test_write_batch_junit_emits_ordered_suite_children_and_root_totals(tmp_path
     assert suites[1].find("testcase/failure").text == "wrong value"
 
 
+def test_junit_keeps_case_results_and_adds_snapshot_persistence_error(tmp_path):
+    output = tmp_path / "results.xml"
+    path = tmp_path / "suite.yaml"
+    batch = BatchResult(
+        [
+            SuiteRun(
+                path,
+                result=SuiteResult(
+                    [CaseResult(name="passes", status=CaseStatus.PASSED, elapsed_ms=5)]
+                ),
+                error=BatchFailure(
+                    BatchFailureCategory.SNAPSHOT,
+                    "SnapshotError",
+                    "could not write snapshot file",
+                ),
+            )
+        ],
+        [],
+    )
+
+    write_batch_junit(output, batch)
+
+    root = ET.parse(output).getroot()
+    suite = root.find("testsuite")
+    assert root.attrib == {
+        "tests": "2",
+        "failures": "0",
+        "errors": "1",
+        "skipped": "0",
+        "time": "0.005",
+    }
+    assert suite is not None
+    assert suite.attrib == {
+        "name": str(path),
+        "tests": "2",
+        "failures": "0",
+        "errors": "1",
+        "skipped": "0",
+        "time": "0.005",
+    }
+    error = suite.find("testcase[@name='[suite snapshot]']/error")
+    assert error is not None
+    assert error.attrib == {
+        "type": "snapshot.SnapshotError",
+        "message": "could not write snapshot file",
+    }
+
+
+def test_snapshot_mismatch_is_ordinary_junit_failure_with_diff(tmp_path):
+    output = tmp_path / "results.xml"
+    failure_text = (
+        "snapshot: mismatch for 'case'\n"
+        "--- expected\n+++ actual\n@@ -1 +1 @@\n-old\n+new"
+    )
+    batch = BatchResult(
+        [
+            SuiteRun(
+                tmp_path / "suite.yaml",
+                result=SuiteResult(
+                    [
+                        CaseResult(
+                            name="case",
+                            status=CaseStatus.FAILED,
+                            failures=[failure_text],
+                        )
+                    ]
+                ),
+            )
+        ],
+        [],
+    )
+
+    write_batch_junit(output, batch)
+
+    failure = ET.parse(output).getroot().find("testsuite/testcase/failure")
+    assert failure is not None
+    assert failure.text == failure_text
+    assert failure.find("error") is None
+
+
+def test_snapshot_update_pass_has_no_junit_failure(tmp_path):
+    output = tmp_path / "results.xml"
+    batch = BatchResult(
+        [
+            SuiteRun(
+                tmp_path / "suite.yaml",
+                result=SuiteResult([CaseResult("case", CaseStatus.PASSED)]),
+            )
+        ],
+        [],
+        snapshot_update_active=True,
+    )
+
+    write_batch_junit(output, batch)
+
+    case = ET.parse(output).getroot().find("testsuite/testcase")
+    assert case is not None
+    assert case.find("failure") is None
+    assert case.find("error") is None
+
+
 def test_filtered_batch_junit_contains_selected_cases_and_runtime_skips_only(
     tmp_path,
 ):
