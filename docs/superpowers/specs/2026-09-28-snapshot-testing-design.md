@@ -1,7 +1,7 @@
 # Snapshot Testing Design
 
 **Date:** 2026-09-28
-**Status:** Draft for review
+**Status:** Approved for implementation planning
 
 ## Context
 
