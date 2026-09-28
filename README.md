@@ -92,6 +92,46 @@ could not run after an infrastructure error. If no cases match, MCP Rig does
 not start a server, writes an empty report when `--junit` is requested, and
 exits with code `2`.
 
+### Snapshot complete tool responses
+
+Use `snapshot: true` to compare the complete normalized tool result while still
+combining it with focused expectations:
+
+```yaml
+server: npx @playwright/mcp@latest
+
+tests:
+  - name: opens homepage
+    call: browser_navigate
+    args:
+      url: https://example.com
+    expect:
+      snapshot: true
+      contains: Example Domain
+```
+
+For a suite named `browser.yaml` or `browser.yml`, MCP Rig stores snapshots in
+`browser.snap.yaml` beside the suite. Structured content is stored as stable,
+readable YAML; otherwise the complete text response is stored. Error state is
+included, while latency is deliberately excluded.
+
+An ordinary run never writes files. The first run therefore fails with a
+missing-snapshot assertion. Create or intentionally refresh snapshots with:
+
+```bash
+mcp-rig run suites/ --update-snapshots
+```
+
+Review the generated `.snap.yaml` Git diff, then commit it with the suite. Later
+ordinary runs fail when the response changes and include a unified diff in the
+terminal and JUnit report. Snapshot differences return exit code `1`; malformed
+or unwritable snapshot files return exit code `2`.
+
+Snapshot updates compose with `--case`, `--tag`, and `--exclude-tag`. A filtered
+update changes only selected cases and preserves every unselected entry. A
+complete, unfiltered successful update also removes stale entries for cases
+that no longer declare snapshots.
+
 See the [real-world server examples](https://github.com/gorkemgul/mcp-rig/tree/main/examples) for
 pinned suites that exercise Playwright MCP, the MCP Everything reference server, and the Time
 MCP server. External examples are kept out of the main CI path and run in a separate manual and
@@ -129,6 +169,8 @@ Each case expects a successful tool call unless it declares
 - `schema`: validate structured results with JSON Schema Draft 2020-12;
   document-local `#...` references are supported, while external references
   are rejected to keep evaluation offline.
+- `snapshot`: compare the complete normalized result with the suite's committed
+  `.snap.yaml` sidecar; the value must be `true`.
 
 `is_error: true` accepts both an MCP tool result marked as an error and a
 JSON-RPC protocol error returned for that tool call. Timeouts and closed
