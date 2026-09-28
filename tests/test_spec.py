@@ -77,6 +77,14 @@ tests:
             "suite.yaml: 'tags'",
         ),
         (
+            "server: python server.py\ntags: null\ntests: [{name: ping, call: ping}]",
+            "suite.yaml: 'tags'",
+        ),
+        (
+            "server: python server.py\ntests: [{name: ping, call: ping, tags: null}]",
+            r"tests\[0\].*'tags'",
+        ),
+        (
             "server: python server.py\ntests: [{name: ping, call: ping, tags: [smoke, 3]}]",
             r"tests\[0\].*'tags'",
         ),

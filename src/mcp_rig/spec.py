@@ -26,6 +26,7 @@ KNOWN_EXPECT_KEYS = {
     "json_path",
     "schema",
 }
+_MISSING = object()
 
 
 class SpecError(ValueError):
@@ -68,7 +69,7 @@ def load_suite(path: str | Path) -> Suite:
     if not isinstance(raw_cases, list) or not raw_cases:
         raise SpecError(f"{suite_path}: 'tests' must be a non-empty list")
     cases = [_parse_case(raw, index, suite_path) for index, raw in enumerate(raw_cases)]
-    tags = _parse_tags(data.get("tags"), f"{suite_path}")
+    tags = _parse_tags(data.get("tags", _MISSING), f"{suite_path}")
     return Suite(path=suite_path, server=server, cases=cases, tags=tags)
 
 
@@ -189,7 +190,7 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
         except jsonschema.SchemaError as exc:
             raise SpecError(f"{where} ({name}): invalid 'schema': {exc.message}") from exc
         _validate_schema_references(schema, where, name)
-    tags = _parse_tags(raw.get("tags"), f"{where} ({name})")
+    tags = _parse_tags(raw.get("tags", _MISSING), f"{where} ({name})")
     return Case(
         name=name,
         call=call,
@@ -201,7 +202,7 @@ def _parse_case(raw: Any, index: int, path: Path) -> Case:
 
 
 def _parse_tags(raw: Any, where: str) -> frozenset[str]:
-    if raw is None:
+    if raw is _MISSING:
         return frozenset()
     if not isinstance(raw, list):
         raise SpecError(f"{where}: 'tags' must be a list")
