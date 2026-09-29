@@ -1,0 +1,9 @@
+server: python ../../tests/fixtures/fixture_server.py
+
+tests:
+  - name: captures a stable tool response
+    call: get_user
+    args: {user_id: 1}
+    expect:
+      snapshot: true
+      contains: Ada

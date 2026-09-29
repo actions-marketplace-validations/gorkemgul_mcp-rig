@@ -1,0 +1,15 @@
+server: python ../../tests/fixtures/fixture_server.py
+tags: [feature-tour]
+
+tests:
+  - name: inherits suite and case tags
+    tags: [smoke]
+    call: echo
+    args: {text: selected}
+    expect: {contains: selected}
+
+  - name: slow case can be excluded
+    tags: [slow]
+    call: slow
+    args: {seconds: 0.01}
+    expect: {contains: done}

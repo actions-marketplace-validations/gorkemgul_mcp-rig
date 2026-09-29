@@ -1,0 +1,7 @@
+version: 1
+snapshots:
+  captures a stable tool response:
+    is_error: false
+    kind: text
+    value: "{\n  \"id\": 1,\n  \"name\": \"Ada\",\n  \"roles\": [\n    \"admin\"\n\
+      \  ]\n}"
