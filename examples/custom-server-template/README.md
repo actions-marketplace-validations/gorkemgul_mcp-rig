@@ -7,7 +7,7 @@ arguments, and expectations:
 server:
   command: python
   args: [-m, my_mcp_server]
-  cwd: ..
+  cwd: ../..
   env:
     APP_ENV: test
 

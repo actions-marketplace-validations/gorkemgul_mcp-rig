@@ -1,5 +1,8 @@
 import os
+import shlex
+import shutil
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from mcp_rig.cli import main
@@ -14,6 +17,12 @@ def activate_test_python(monkeypatch) -> None:
     monkeypatch.setenv(
         "PATH",
         executable_directory + os.pathsep + os.environ.get("PATH", ""),
+    )
+
+
+def fixture_command() -> str:
+    return shlex.join(
+        [sys.executable, str(ROOT / "tests" / "fixtures" / "fixture_server.py")]
     )
 
 
@@ -61,3 +70,71 @@ def test_feature_tour_filters_real_cases(capsys, monkeypatch) -> None:
     assert "inherits suite and case tags" in output
     assert "slow case can be excluded" not in output
     assert "Selection: 1 selected, 1 filtered out" in output
+
+
+def test_feature_tour_case_filter_and_junit_commands(tmp_path, capsys, monkeypatch) -> None:
+    activate_test_python(monkeypatch)
+    suite = FEATURE_TOUR / "filtering.yaml"
+    report = tmp_path / "mcp-rig-results.xml"
+
+    assert main(["run", str(suite), "--case", "inherits*"]) == 0
+    output = capsys.readouterr().out
+    assert "inherits suite and case tags" in output
+    assert "slow case can be excluded" not in output
+
+    assert main(["run", str(FEATURE_TOUR), "--junit", str(report)]) == 0
+    capsys.readouterr()
+    assert len(ET.parse(report).getroot().findall("testsuite")) >= 4
+
+
+def test_feature_tour_snapshot_update_command_writes_a_fresh_baseline(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    activate_test_python(monkeypatch)
+    copied_root = tmp_path / "repository"
+    copied_tour = copied_root / "examples" / "feature-tour"
+    copied_fixture = copied_root / "tests" / "fixtures" / "fixture_server.py"
+    shutil.copytree(FEATURE_TOUR, copied_tour)
+    copied_fixture.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / "tests" / "fixtures" / "fixture_server.py", copied_fixture)
+    sidecar = copied_tour / "snapshots.snap.yaml"
+    sidecar.unlink()
+
+    assert main(
+        ["run", str(copied_tour / "snapshots.yaml"), "--update-snapshots"]
+    ) == 0
+
+    assert sidecar.exists()
+    assert "Snapshots: 1 added" in capsys.readouterr().out
+
+
+def test_feature_tour_check_commands_cover_normal_strict_and_probe(capsys) -> None:
+    command = fixture_command()
+
+    assert main(["check", command]) == 0
+    assert "3/3 checks passed" in capsys.readouterr().out
+
+    assert main(["check", command, "--strict"]) == 1
+    assert "lint warnings" in capsys.readouterr().out
+
+    assert main(["check", command, "--probe-invalid-args"]) == 0
+    assert "missing required args rejected" in capsys.readouterr().out
+
+
+def test_feature_tour_check_server_logs_option_runs_with_real_stderr(capfd) -> None:
+    command = fixture_command()
+
+    assert main(["check", command, "--server-logs"]) == 0
+    assert "3/3 checks passed" in capfd.readouterr().out
+
+
+def test_feature_tour_server_logs_command_exposes_diagnostic(capfd, monkeypatch) -> None:
+    activate_test_python(monkeypatch)
+    suite = FEATURE_TOUR / "diagnostics.yaml"
+
+    assert main(["run", str(suite), "--server-logs"]) == 0
+
+    captured = capfd.readouterr()
+    assert "mcp-rig-feature-tour-diagnostic" in captured.err

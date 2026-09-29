@@ -14,6 +14,7 @@ mcp-rig run examples/feature-tour/
   text inclusion/exclusion, regular expressions, latency, JSON paths, JSON
   Schema, and a per-case timeout.
 - `filtering.yaml` demonstrates suite and case tags.
+- `diagnostics.yaml` emits a controlled server diagnostic for `--server-logs`.
 - `snapshots.yaml` demonstrates full-response snapshots with its committed
   `snapshots.snap.yaml` baseline.
 - `server-config.yaml` demonstrates structured `command`, `args`, `cwd`, and
@@ -32,8 +33,8 @@ mcp-rig run examples/feature-tour/
 Write CI-readable JUnit and expose server stderr while diagnosing a failure:
 
 ```bash
-mcp-rig run examples/feature-tour/ --junit /tmp/mcp-rig-results.xml
-mcp-rig run examples/feature-tour/assertions.yaml --server-logs
+mcp-rig run examples/feature-tour/ --junit mcp-rig-results.xml
+mcp-rig run examples/feature-tour/diagnostics.yaml --server-logs
 ```
 
 Select cases by case-sensitive shell pattern and effective tags:
