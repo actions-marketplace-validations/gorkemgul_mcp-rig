@@ -24,12 +24,18 @@ report is removed afterwards.
 - `cli-demo-poster.png`: still frame for previews and environments without animation.
 
 The README uses repository-relative image paths, which work in local previews
-and on the private GitHub repository. PyPI cannot access these private assets;
-public image hosting is needed to display them there.
+and on GitHub. PyPI needs absolute public image URLs to display these assets.
 
 CI uses GitHub's native workflow badge for `ci.yml` on `main`. PyPI version,
-Python versions, and monthly downloads are live Shields.io badges. The download
-provider may temporarily rate limit requests. MIT is the repository's declared
-license. Issues and stars are navigation badges while the repository is private;
-Shields.io cannot read private repository counts. Once the repository is public,
-they can use `/github/issues/gorkemgul/mcp-rig` and `/github/stars/gorkemgul/mcp-rig`.
+Python versions, open issues, and stars are live badges. MIT is the repository's
+declared license.
+
+The package was first published on 2026-09-29. PyPI Stats and Pepy did not yet
+have download statistics when checked that day, so the README temporarily shows
+`downloads: awaiting stats` rather than an error or an unverified zero. Once
+`https://pypistats.org/api/packages/mcp-rig/recent` returns download data, replace
+the temporary badge with:
+
+```markdown
+[![Monthly downloads](https://img.shields.io/pypi/dm/mcp-rig?label=downloads&color=91e4ef)](https://pypistats.org/packages/mcp-rig)
+```

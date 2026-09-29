@@ -3,10 +3,10 @@
 [![CI](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-b8a0ff)](https://github.com/gorkemgul/mcp-rig/blob/main/LICENSE)
 [![PyPI version](https://img.shields.io/pypi/v/mcp-rig?logo=pypi&logoColor=white&color=b8a0ff)](https://pypi.org/project/mcp-rig/)
-[![Monthly downloads](https://img.shields.io/pypi/dm/mcp-rig?label=downloads&color=91e4ef)](https://pypistats.org/packages/mcp-rig)
+[![Download statistics pending](https://img.shields.io/badge/downloads-awaiting%20stats-91e4ef)](https://pypi.org/project/mcp-rig/)
 [![Python versions](https://img.shields.io/pypi/pyversions/mcp-rig?logo=python&logoColor=white&color=91e4ef)](https://pypi.org/project/mcp-rig/)
-[![Open issues](https://img.shields.io/badge/open%20issues-view-b8a0ff)](https://github.com/gorkemgul/mcp-rig/issues?q=is%3Aissue%20is%3Aopen)
-[![GitHub stars](https://img.shields.io/badge/GitHub-star-91e4ef?logo=github&logoColor=white)](https://github.com/gorkemgul/mcp-rig/stargazers)
+[![Open issues](https://img.shields.io/github/issues/gorkemgul/mcp-rig?color=b8a0ff)](https://github.com/gorkemgul/mcp-rig/issues?q=is%3Aissue%20is%3Aopen)
+[![GitHub stars](https://img.shields.io/github/stars/gorkemgul/mcp-rig?style=flat&color=91e4ef&logo=github&logoColor=white)](https://github.com/gorkemgul/mcp-rig/stargazers)
 
 # MCP Rig
 
