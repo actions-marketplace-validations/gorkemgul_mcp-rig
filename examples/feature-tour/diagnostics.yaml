@@ -1,0 +1,7 @@
+server: python ../../tests/fixtures/fixture_server.py
+
+tests:
+  - name: exposes a controlled server diagnostic
+    call: write_stderr
+    args: {message: mcp-rig-feature-tour-diagnostic}
+    expect: {contains: written}

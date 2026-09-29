@@ -137,6 +137,13 @@ pinned suites that exercise Playwright MCP, the MCP Everything reference server,
 MCP server. External examples are kept out of the main CI path and run in a separate manual and
 weekly smoke workflow.
 
+The [complete feature tour](https://github.com/gorkemgul/mcp-rig/tree/main/examples/feature-tour)
+provides runnable local examples for every expectation, snapshots, tags and filters, server
+configuration, batch runs, JUnit, diagnostics, and `check`. Start with the
+[custom-server template](https://github.com/gorkemgul/mcp-rig/tree/main/examples/custom-server-template)
+when testing your own stdio server, and use the
+[GitHub Actions example](https://github.com/gorkemgul/mcp-rig/tree/main/examples/ci) for CI.
+
 A suite names the stdio server command and the tool calls to verify:
 
 ```yaml

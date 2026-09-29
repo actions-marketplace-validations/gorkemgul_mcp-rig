@@ -1,0 +1,16 @@
+server:
+  command: python
+  args: [../../../tests/fixtures/fixture_server.py]
+  cwd: workspace
+  env:
+    MCP_RIG_EXAMPLE: configured
+
+tests:
+  - name: reads configured environment
+    call: get_env
+    args: {name: MCP_RIG_EXAMPLE}
+    expect: {contains: configured}
+
+  - name: uses configured working directory
+    call: working_directory
+    expect: {contains: workspace}

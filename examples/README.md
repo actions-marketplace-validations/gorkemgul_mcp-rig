@@ -3,6 +3,9 @@
 The examples in this directory are ready-to-run MCP Rig suites.
 
 - [`fixture.yaml`](fixture.yaml) tests the repository's deterministic local fixture server.
+- [`feature-tour`](feature-tour/) exercises every suite feature and CLI workflow locally.
+- [`custom-server-template`](custom-server-template/) is a copyable starting point for your server.
+- [`ci`](ci/) shows a complete GitHub Actions integration.
 - [`servers/playwright`](servers/playwright/) tests browser navigation with Playwright MCP.
 - [`servers/server-everything`](servers/server-everything/) tests the MCP reference server.
 - [`servers/time`](servers/time/) tests timezone conversion with the Time MCP server.
