@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a capability or improvement for MCP Rig.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please [search existing requests](https://github.com/gorkemgul/mcp-rig/issues?q=is%3Aissue+label%3Aenhancement) first.
+        A concrete example helps us assess the request.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what is difficult or missing today.
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Explain the workflow and who would benefit. Include an example command or YAML suite if useful.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe how you would like MCP Rig to behave. An implementation plan is not needed.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: If applicable, describe other approaches you have considered or tried.

@@ -1,0 +1,71 @@
+name: Bug report
+description: Report unexpected behavior in MCP Rig.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please [search existing issues](https://github.com/gorkemgul/mcp-rig/issues?q=is%3Aissue) first.
+        Include the smallest example that reproduces the problem. Remove secrets and private data from commands, suites, and logs.
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: What happened?
+      description: Describe the problem and the result you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: Paste the exact command you ran, including flags.
+      placeholder: mcp-rig run suite.yaml --junit results.xml
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include any files or server setup needed before running the command.
+      placeholder: |
+        1. Install MCP Rig with ...
+        2. Create suite.yaml containing ...
+        3. Run the command above.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Find the MCP Rig version with `pip show mcp-rig` or `pipx list`, and the Python version with `python --version`. For a source checkout, include the commit if known.
+      placeholder: |
+        MCP Rig version:
+        Python version:
+        Operating system and version:
+        Installation method (pip, pipx, source, other):
+    validations:
+      required: true
+  - type: textarea
+    id: suite
+    attributes:
+      label: Minimal YAML suite
+      description: If the problem involves a suite, paste a minimal example. Omit credentials and private paths.
+      render: yaml
+  - type: textarea
+    id: server
+    attributes:
+      label: MCP server details
+      description: Include the server name, version, and launch command. Link a minimal server implementation if needed to reproduce the issue.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output or traceback
+      description: Paste relevant output, including the exit code if known. For startup or connection problems, `--server-logs` may help; review the output for secrets before sharing it.
+      render: shell

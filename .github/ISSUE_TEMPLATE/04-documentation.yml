@@ -1,0 +1,24 @@
+name: Documentation
+description: Report unclear, missing, or incorrect documentation or examples.
+labels: [documentation]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link the page or give the repository file and section. For missing documentation, say where you looked.
+      placeholder: README.md — Snapshot complete tool responses
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What needs to change?
+      description: Describe what is unclear, missing, or incorrect. Include the command and output if a documented example does not work.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: If you have a proposed correction or example, share it here.

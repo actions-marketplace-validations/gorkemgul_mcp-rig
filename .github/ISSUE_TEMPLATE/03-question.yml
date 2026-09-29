@@ -1,0 +1,31 @@
+name: Question
+description: Ask for help using MCP Rig.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [README](https://github.com/gorkemgul/mcp-rig#readme) and [feature tour](https://github.com/gorkemgul/mcp-rig/tree/main/examples/feature-tour) may answer your question.
+        Remove secrets and private data from any examples you share.
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like help with?
+      description: Explain what you are trying to accomplish and where you are stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include relevant documentation, commands, and results if available.
+  - type: textarea
+    id: example
+    attributes:
+      label: Command, YAML suite, or output
+      description: Share a small example if it helps explain your question. Markdown code blocks are supported.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include MCP Rig and Python versions, operating system, and MCP server details if relevant.

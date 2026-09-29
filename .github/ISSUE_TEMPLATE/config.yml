@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation and installation
+    url: https://github.com/gorkemgul/mcp-rig#readme
+    about: Read the CLI reference, installation instructions, and supported features.
+  - name: Runnable examples
+    url: https://github.com/gorkemgul/mcp-rig/tree/main/examples/feature-tour
+    about: Try local examples of assertions, snapshots, filtering, and reporting.
