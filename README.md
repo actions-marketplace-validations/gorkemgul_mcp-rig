@@ -1,9 +1,34 @@
+![MCP Rig — Test your MCP servers. YAML suites connect to an MCP server and produce verified test results.](docs/assets/banner.png)
+
+[![CI](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gorkemgul/mcp-rig/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-b8a0ff)](https://github.com/gorkemgul/mcp-rig/blob/main/LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/mcp-rig?logo=pypi&logoColor=white&color=b8a0ff)](https://pypi.org/project/mcp-rig/)
+[![Monthly downloads](https://img.shields.io/pypi/dm/mcp-rig?label=downloads&color=91e4ef)](https://pypistats.org/packages/mcp-rig)
+[![Python versions](https://img.shields.io/pypi/pyversions/mcp-rig?logo=python&logoColor=white&color=91e4ef)](https://pypi.org/project/mcp-rig/)
+[![Open issues](https://img.shields.io/badge/open%20issues-view-b8a0ff)](https://github.com/gorkemgul/mcp-rig/issues?q=is%3Aissue%20is%3Aopen)
+[![GitHub stars](https://img.shields.io/badge/GitHub-star-91e4ef?logo=github&logoColor=white)](https://github.com/gorkemgul/mcp-rig/stargazers)
+
 # MCP Rig
 
 Deterministic, CI-friendly testing for Model Context Protocol servers.
 
 MCP Rig currently launches local MCP servers over stdio and runs declarative
 tool suites in YAML.
+
+## CLI in action
+
+Run a YAML suite, select tests by tag, and export a JUnit report for CI:
+
+![Terminal demo of MCP Rig running three passing tests, selecting one test with the smoke tag, and exporting a JUnit report.](docs/assets/cli-demo.gif)
+
+The demo runs the repository's local fixture server. Try it from a development
+checkout after completing the [development setup](#development-setup):
+
+```bash
+mcp-rig run examples/fixture.yaml
+mcp-rig run examples/feature-tour/filtering.yaml --tag smoke
+mcp-rig run examples/fixture.yaml --junit results.xml
+```
 
 ## Installation
 
