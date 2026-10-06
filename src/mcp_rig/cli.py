@@ -13,7 +13,7 @@ from mcp_rig.checks import CheckResult, run_protocol_checks
 from mcp_rig.client import ServerSpec, ToolInfo, connect, is_url
 from mcp_rig.discovery import discover_suites
 from mcp_rig.junit import write_batch_junit
-from mcp_rig.lint import LintWarning, lint_tools
+from mcp_rig.lint import LintWarning, filter_warnings, lint_tools, parse_ignore_pattern
 from mcp_rig.report import render_batch, render_batch_errors, render_check, render_suite
 from mcp_rig.runner import CaseStatus, ErrorCategory
 from mcp_rig.scaffold import header_variables, scaffold_suite
@@ -93,6 +93,15 @@ def main(argv: list[str] | None = None) -> int:
         "--probe-invalid-args",
         action="store_true",
         help="call tools with missing required args; only use on development/test servers",
+    )
+    check_parser.add_argument(
+        "--ignore",
+        dest="ignore_patterns",
+        action="append",
+        default=[],
+        type=_ignore_arg,
+        metavar="CODE[:TOOL]",
+        help="ignore a lint code, or a code for one tool; repeatable",
     )
     check_parser.add_argument(
         "--strict",
@@ -236,9 +245,12 @@ def _cmd_check(args: argparse.Namespace, color: bool) -> int:
             print(SERVER_LOGS_HINT, file=sys.stderr)
         return EXIT_USAGE
 
-    print(render_check(checks, warnings, color=color))
+    filtered = filter_warnings(warnings, args.ignore_patterns)
+    print(render_check(checks, filtered.kept, color=color, ignored=filtered.ignored))
+    for pattern in filtered.unused_patterns:
+        print(f"warning: --ignore {pattern} matched no lint warning", file=sys.stderr)
     failed = not all(check.passed for check in checks) or (
-        args.strict and bool(warnings)
+        args.strict and bool(filtered.kept)
     )
     return EXIT_FAILED if failed else EXIT_OK
 
@@ -336,6 +348,13 @@ def _same_path(first: str | Path, second: str | Path) -> bool:
         return Path(first).samefile(second)
     except OSError:
         return Path(first).resolve() == Path(second).resolve()
+
+
+def _ignore_arg(value: str) -> str:
+    try:
+        return parse_ignore_pattern(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _tag_arg(value: str) -> str:
